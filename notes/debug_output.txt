@@ -1,0 +1,94 @@
+=== Raw Arguments ===
+argc = 4
+argv[0] = "/global/homes/s/sdiwan/DistributedPanGA/notes/GIXmake_debug"
+argv[1] = "-v"
+argv[2] = "-T8"
+argv[3] = "yeast7"
+
+Parsing argv[1] = "-v"
+Parsing argv[2] = "-T8"
+  -> Set NTHREADS = 8
+Parsing argv[3] = "yeast7"
+  -> VERBOSE = 1
+=== GIXmake Arguments ===
+KMER = 40
+KBYTES = 10
+NTHREADS = 8
+VERBOSE = 1
+SORT_PATH = /tmp
+Input source = yeast7
+
+  Creating genome index (GIX) yeast7.gix in the current directory
+
+=== Contigs ===
+contig[0]: len=219929 boff=0
+contig[1]: len=813597 boff=54983
+contig[2]: len=341580 boff=258383
+contig[3]: len=1566853 boff=343778
+contig[4]: len=583092 boff=735492
+contig[5]: len=271539 boff=881265
+contig[6]: len=1091538 boff=949150
+contig[7]: len=581049 boff=1222035
+contig[8]: len=440036 boff=1367298
+contig[9]: len=751611 boff=1477307
+contig[10]: len=666862 boff=1665210
+contig[11]: len=451611 boff=1831926
+contig[12]: len=606574 boff=1944829
+contig[13]: len=930506 boff=2096473
+contig[14]: len=777615 boff=2329100
+contig[15]: len=1091343 boff=2523504
+contig[16]: len=954457 boff=2796340
+contig[17]: len=215496 boff=3034955
+contig[18]: len=795659 boff=3088829
+contig[19]: len=327289 boff=3287744
+... (99 more contigs)
+
+=== Work Distribution ===
+Total sequence: 83409131 bp
+Splitting into 8 threads:
+  Thread 0: contigs [0, 16), starting at post 0
+  Thread 1: contigs [16, 31), starting at post 11185335
+  Thread 2: contigs [31, 46), starting at post 21130217
+  Thread 3: contigs [46, 61), starting at post 31712700
+  Thread 4: contigs [61, 75), starting at post 42157225
+  Thread 5: contigs [75, 90), starting at post 52337416
+  Thread 6: contigs [90, 106), starting at post 62898496
+  Thread 7: contigs [106, 119), starting at post 74321021
+  Thread 8: contigs [119, 119), starting at post 83409131
+
+=== Sort Configuration ===
+PostBytes = 3 (bytes per position)
+ContBytes = 1 (bytes per contig+sign)
+NPARTS = 8 (sort partitions)
+KBYTES = 10 (bytes per packed k-mer)
+MBYTES = 11 (bytes per masked k-mer)
+
+  Partitioning K-mers via pos-lists into 8 parts
+
+=== Distribution Phase ===
+Scanning 119 contigs across 8 threads
+Distributing to 8 partitions
+
+=== Bucket Distribution ===
+Total k-mers sampled: 64380610
+K-mer split points:
+
+  Resources for phase:  1.628u  0.087s  0.259w  662.3%
+
+  Starting sort & index output of each part
+    Sorting part 1      Compressing part 1    Outputing part 1      Sorting part 2      Compressing part 2    Outputing part 2      Sorting part 3      Compressing part 3    Outputing part 3      Sorting part 4      Compressing part 4    Outputing part 4      Sorting part 5      Compressing part 5    Outputing part 5      Sorting part 6      Compressing part 6    Outputing part 6      Sorting part 7      Compressing part 7    Outputing part 7      Sorting part 8      Compressing part 8    Outputing part 8      Done                                           
+
+  Sampled:      64378260 ( 77.2%) kmers/positions
+
+  Resources for phase:  5.368u  0.674s  2.324w  259.9%
+
+  Total Resources:  6.997u  0.761s  2.583w  300.3%  0MB
+  Part 0: buckets [0, 112)
+  Part 1: buckets [112, 245)
+  Part 2: buckets [245, 395)
+  Part 3: buckets [395, 524)
+  Part 4: buckets [524, 660)
+  Part 5: buckets [660, 788)
+  Part 6: buckets [788, 899)
+  Part 7: buckets [899, 1024)
+  Part 8: buckets [1024, 1024)

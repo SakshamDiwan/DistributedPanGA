@@ -1,0 +1,26 @@
+# Build artifacts
+*.o
+*.a
+*.so
+*.d
+
+# Binaries
+distributedpanga
+pga-extract
+pga-sort
+
+# Output / scratch files
+*_buckets.txt
+
+# Markdown files
+*.md
+
+# Tests directory
+tests/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
