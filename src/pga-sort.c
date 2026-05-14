@@ -128,6 +128,7 @@ int main(int argc, char *argv[])
         }
     }
 
+
     FILE *out = stdout;
     if (argc == 3)
     {

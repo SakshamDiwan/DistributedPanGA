@@ -14,7 +14,7 @@
 
 void tuple_buffer_init(TupleBuffer *b)
 {
-    b->capacity = 1 << 20;        // 1M tuples to start
+    b->capacity = 1 << 20;
     b->count    = 0;
     b->data     = (Tuple *) malloc(b->capacity * sizeof(Tuple));
     if (b->data == NULL)
@@ -217,7 +217,7 @@ static void tuple_emit_cb(void *user, int contig, int64_t position, int strand,
 void record_buffer_init(RecordBuffer *b, RecordSizing sizing)
 {
     b->sizing   = sizing;
-    b->capacity = 1 << 20;        // 1M records to start
+    b->capacity = 1 << 20;
     b->count    = 0;
     // +1 for msd_sort's sentinel write at array[asize].
     b->data = (uint8_t *) malloc(b->capacity * sizing.record_size + 1);

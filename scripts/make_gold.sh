@@ -20,8 +20,18 @@ rm -f yeast7.1gdb yeast7.gix
 echo "[2/5] gold.kmers via GIXshow..."
 ~/FASTGA/GIXshow yeast7.gix | sort -S 4G --parallel=4 > gold.kmers
 
+echo "[2b/5] gold.lcp.kmers.simple — simple-LCP oracle for Phase 3 LCP verifier..."
+# Recomputes LCPs as bases-in-common from GIXshow's distinct-k-mer sequence,
+# rather than reading GIXshow's raw "lcp" column (which is msd_sort's internal
+# byte 0, not a semantic LCP at part[] boundaries — see implementation_plan.md
+# §7a.1b for the encoding analysis).
+"$ROOT/scripts/build_lcp_oracle_simple.sh" yeast7.gix gold.lcp.kmers.simple
+
 echo "[3/5] gold.paf via FastGA self-alignment..."
-~/FASTGA/FastGA -1:gold yeast7 yeast7
+# Single-argument form invokes FastGA's self-alignment mode (SELF=1).
+# `yeast7 yeast7` would be cross-mode and produce roughly half the alignments
+# (no symmetric A->B / B->A duplication, different self-pair handling).
+~/FASTGA/FastGA -1:gold yeast7
 ~/FASTGA/ALNtoPAF gold.1aln > gold.paf
 
 echo "[4/5] gold.tuples via instrumented GIXmake..."
