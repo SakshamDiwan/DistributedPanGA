@@ -29,8 +29,18 @@ report/
 # Markdown files
 *.md
 
+# ...except the tracked agent-context set (narrow exceptions to *.md above).
+# Datasets, gold fixtures, outputs and tests/ stay ignored.
+!AGENTS.md
+!CLAUDE.md
+!docs/agent/*.md
+!.claude/skills/*/SKILL.md
+
 # Tests directory
 tests/
+
+# Local Claude Code settings (personal; not shared)
+.claude/settings.local.json
 
 # Editor / OS
 .vscode/
