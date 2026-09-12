@@ -55,7 +55,8 @@ pga-merge: $(PHASE4_SRCS) $(LIB_SRCS)
 # Phase 4b — distributed merge + alignment. mpicc, links pga-mpi's stage 2
 # (dsort.c) and pga-merge's adapter + lifted FastGA pipeline.
 PHASE4B_SRCS = src/pga-mpi-merge.c $(CORE_SRCS) src/sort.c src/dsort.c \
-               src/kmer_adapter.c src/fastga_pipeline.c src/contig_assignment.c
+               src/kmer_adapter.c src/fastga_pipeline.c src/contig_assignment.c \
+               src/seed_exchange.c
 pga-mpi-merge: $(PHASE4B_SRCS) $(LIB_SRCS)
 	$(CC) $(CFLAGS) -o pga-mpi-merge $(PHASE4B_SRCS) $(LIB_SRCS) $(LIBS)
 
