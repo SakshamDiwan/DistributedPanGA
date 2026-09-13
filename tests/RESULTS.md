@@ -1,50 +1,85 @@
 # Test results
 
-Last run: 2026-09-12, Perlmutter login node (gcc 14.3.0, cray-mpich).
-Command: `make test` — no allocation, no fixtures, no FastGA tools. ~25 s.
+**Branch:** `test/unit-and-integration`  **Commit:** `0f90708`  **Tree:** clean
+**Run:** 2026-09-12, Perlmutter, account `m4341`, 1 CPU node, `debug` QOS
+(gcc 14.3.0, cray-mpich). Unit suite on a login node; everything else in a
+bounded batch job.
 
-**42,471 checks · 0 failures · 5 expected failures · exit 0**
+Results below are for **this** commit, which still contains the R-01, R-03 and
+R-04 defects. Fixes live on separate branches and their results are recorded
+there, not here.
 
-## Unit suites
+## Unit suite — `make test`
 
-| Binary | Covers | Checks | Result |
-|---|---|---|---|
-| `test_record_split` | E-12, E-13, R-03 sizing | 112 | pass, 3 xfail |
-| `test_extract` | E-01…E-11, R-03 extraction | 7,519 | pass, 1 xfail |
-| `test_extract_window` | E-11 (`SCAN_MAX=64`) | 19 | pass |
-| `test_lcp_sort` | S-01…S-05b, R-04 | 4,028 | pass, 1 xfail |
-| `test_dsort` | S-06…S-09 | 26,668 | pass |
-| `test_assign` | A-01…A-05 | 76 | pass |
-| `test_adapter` | K-01…K-05 | 4,034 | pass |
-| `test_exchange_plan` | R-02 | 15 | pass |
+**42,471 checks, 0 failures, 5 expected failures**, exit 0, ~25 s.
 
-`make test-asan` (ASan + UBSan) also clean, and is the only run that includes
-**S-05b**, which extracts 1.5 Mbp to force a production buffer growth.
-
-## Known defects
-
-| ID | What | Status |
+| Binary | Covers | Checks |
 |---|---|---|
-| R-02 | Cumulative send displacement could overflow `int` | **fixed** — guard added in `src/seed_exchange.c`, markers removed |
-| R-03 | `post_bytes` one byte short at `maxctg = 256^k`; a 256-base contig's RC record at position 256 decodes as **0** | open — 4 xfail assertions |
-| R-04 | `recalc_all_lcps` leaves a singleton's LCP byte stale (observed 37, contract says 0) | open — 1 xfail assertion |
-| R-01 | LCP seam computed against an empty rank's sentinel instead of the true predecessor | open — test written, needs an allocation to run |
+| `test_record_split` | E-12, E-13, R-03 sizing | 112 (3 xfail) |
+| `test_extract` | E-01…E-11, R-03 extraction | 7,519 (1 xfail) |
+| `test_extract_window` | E-11 (`SCAN_MAX=64`) | 19 |
+| `test_lcp_sort` | S-01…S-05b, R-04 | 4,028 (1 xfail) |
+| `test_dsort` | S-06…S-09 | 26,668 |
+| `test_assign` | A-01…A-05 | 76 |
+| `test_adapter` | K-01…K-05 | 4,034 |
+| `test_exchange_plan` | R-02 | 15 |
 
-## Not yet run
+`make test-asan` (ASan + UBSan) clean; it is the only run that includes S-05b,
+which forces a production buffer growth.
 
-The MPI tier (**M-01…M-06**, **R-01**) is written and compiles, but multi-rank
-runs need a Slurm allocation:
+## MPI tier — `make test-mpi`, world sizes 1 2 3 4 8
 
-```bash
-salloc --account=m4341 --constraint=cpu --qos=interactive --nodes=1 --time=00:30:00
-make test-mpi                     # RANK_COUNTS="1 2 3 4 8"
-```
+| Mode | Result |
+|---|---|
+| `uniform` | pass at 1, 2, 3, 4, 8 (11 checks each) |
+| `skew` | pass at 1, 3, 4, 8 — **fails at ws=2** (see below) |
+| `seam` (ws=4) | xfail, R-01: observed LCP 0, correct 4; slices `r0=4 r1=0 r2=4 r3=0` |
+| M-06 consistency | ws 2, 3, 4, 8 all match ws=1 |
 
-Single-rank smoke test already passes on the login node (`uniform` and `skew`
-modes, world=1). R-01 needs exactly 4 ranks.
+**The `skew` ws=2 failure is R-01, not a separate defect.** At world size 2 the
+fixture yields a single global record, which lands on rank 1 while rank 0 is
+empty; the seam fixup then measures its LCP against the empty rank's sentinel
+instead of leaving it 0. It reports
+`M-04 skew: first record LCP = 1, want 0`. It is *not* marked as an expected
+failure because it reaches the assertion through a shared code path, so
+`make test-mpi` exits non-zero on this branch. It goes green on the R-01 fix
+branch.
 
-**P6 end-to-end (Z-01, Z-02) is blocked**: no `tests/fixtures/`, no `~/FASTGA`,
-no `ALNtoPAF` on `PATH`.
+## Phase verifiers — small synthetic fixture
+
+Against independent FastGA gold (see `MANIFEST.txt` for provenance):
+
+| Check | Result |
+|---|---|
+| `verify-phase1` | PASS — extraction byte-identical to `gold.tuples` (38,023 tuples) |
+| `verify-phase2` | PASS — extraction + `msd_sort` matches after lex sort |
+| `verify-phase3-stage1` | ALL PASS at N ∈ {1, 2, 4} |
+| `verify-phase3-stage2` | ALL PASS at N ∈ {1, 2, 4}, Tier 1 + Tier 2 |
+| `verify-phase3-stage2-lcp` | ALL PASS at N ∈ {1, 2, 4}; 36,128 distinct-k-mer LCPs match the oracle |
+
+## End-to-end — `scripts/verify_e2e_small.sh`
+
+`pga-mpi-merge` at world sizes 1, 2 and 4; aggregate PAF compared against the
+FastGA reference, sorted but not deduplicated.
+
+| World size | Rank files | Aggregate | Result |
+|---|---|---|---|
+| 1 | 1 | 24 alignments | matches FastGA gold |
+| 2 | 2 | 24 alignments | matches FastGA gold, identical to ws=1 |
+| 4 | 4 | 24 alignments | matches FastGA gold, identical to ws=1 |
+
+The reference containing 24 alignments is a property of the fixture, not
+evidence about this pipeline; the evidence is that the aggregate **matches** it
+at every rank count.
+
+## Open defects on this branch
+
+| ID | Status |
+|---|---|
+| R-01 | open — seam LCP across empty ranks. 1 xfail (seam) + 1 unmarked failure (`skew` ws=2) |
+| R-03 | open — position width at `maxctg = 256^k`. 4 xfail |
+| R-04 | open — singleton LCP byte. 1 xfail |
+| R-02 | fixed on this branch; markers removed |
 
 ## Notes
 
@@ -53,10 +88,8 @@ no `ALNtoPAF` on `PATH`.
 - MPI binaries need `MPICH_GPU_SUPPORT_ENABLED=0` in the default Perlmutter
   environment, which loads `craype-accel-nvidia80`; otherwise cray-mpich aborts
   with *"GPU_SUPPORT_ENABLED is requested, but GTL library is not linked"*.
-  `tests/run_mpi.sh` sets it.
-- Two fixture assumptions were confirmed empirically rather than assumed:
-  `select[768]=0, select[769]=1, select[770]=2` (R-01's empty middle rank), and
-  that removing the `+1` from the production allocators makes S-05b fail under
-  ASan.
+  `tests/run_mpi.sh` and `scripts/verify_e2e_small.sh` set it.
+- The fixture and gold are regenerated by `scripts/make_gold_small.sh`, verified
+  reproducible: a from-scratch rebuild produced a byte-identical `gold.paf`.
 
 See `tests/CATALOG.md` for what each test asserts.
