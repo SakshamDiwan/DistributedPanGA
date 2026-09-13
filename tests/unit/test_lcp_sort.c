@@ -164,23 +164,23 @@ static void s03_recalc_empty(void)
 
 // R-04 / S-03(b) -- A one-record buffer must still have its LCP byte set.
 //
-// THIS TEST IS EXPECTED TO FAIL until the defect is fixed.  It asserts the
-// CORRECT behaviour, not the current behaviour.
+// FIXED.  This test was landed as an expected failure, then src/sort.c was
+// corrected and the marker removed -- so the assertion below is known to have
+// real power rather than being vacuously true.
 //
 // The contract in src/sort.h is "overwrite byte 0 of EVERY record".  A single
 // record has no predecessor, so 0 is the only consistent value -- exactly as
 // the first record of a longer buffer gets 0 in S-02.
 //
-// The defect: src/sort.c:40 reads `if (buf->count <= 1) return;`, which lumps
-// together two cases that differ.  For count == 0 returning immediately is
-// right.  For count == 1 it leaves byte 0 holding whatever was there before --
-// and after sort_records() that is msd_sort's internal encoding, not 0.  The
-// fixture pre-sets the byte to 37 to stand in for that leftover value.
+// The defect was: `if (buf->count <= 1) return;` lumped together two cases that
+// differ.  For count == 0 returning immediately is right.  For count == 1 it
+// left byte 0 holding whatever was there before -- after sort_records() that is
+// msd_sort's internal encoding, not 0.  The fixture pre-sets the byte to 37 to
+// stand in for that leftover value.
 //
-// Latent today because run_stage2 rarely hands it a single-record slice -- but
-// the empty-rank work in R-01 makes exactly that case reachable.
-//
-// Fix:  if (count == 0) return;  data[0] = 0;  if (count == 1) return;
+// This was not hypothetical: the MPI skew test at world size 2 produces a
+// single-record global dataset, and reported "first record LCP = 1, want 0"
+// until the fix landed.
 static void r04_recalc_singleton(void)
 {
     RecordBuffer buf;
@@ -193,10 +193,7 @@ static void r04_recalc_singleton(void)
     recalc_all_lcps(&buf);
     rb_decode(&buf, 0, &r, &lcp);
 
-    EXPECT_FAIL_UNTIL("R-04", lcp == 0);
-    if (lcp != 0)
-        printf("      [observed: singleton LCP byte left at %u; "
-               "src/sort.c:40 returns early for count <= 1]\n", lcp);
+    CHECK_MSG(lcp == 0, "singleton LCP byte is %u, want 0 (no predecessor)", lcp);
     rb_free(&buf);
 }
 

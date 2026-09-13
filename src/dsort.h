@@ -88,8 +88,13 @@ int64_t verify_per_rank_sorted(const RecordBuffer *recv, int64_t *first_bad);
 //
 // Returns: 0 if all boundaries are ordered, nonzero if this rank's first k-mer
 // is < the previous rank's last k-mer.
+// `have_prev_out` (may be NULL) reports whether a NON-EMPTY predecessor rank
+// exists at all. It is 0 for rank 0, and also for any rank whose predecessors
+// all hold zero records -- in which case this rank owns the globally first
+// record and its LCP must stay 0 rather than being measured against anything.
 int verify_cross_rank_boundaries(const RecordBuffer *recv,
                                  uint8_t *prev_last_kmer_out,
+                                 int *have_prev_out,
                                  MPI_Comm comm);
 
 #endif
