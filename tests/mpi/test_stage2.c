@@ -29,8 +29,11 @@
 //            M-02 (global ordering), M-03 (LCP correctness including seams),
 //            M-05 (repeatability), and writes the digest M-06 compares.
 //   skew     M-04: rank 0 starts with zero records and rank 1 with exactly one.
-//   seam     R-01: forces an EMPTY rank between two populated ones.
-//            Requires exactly 4 ranks.
+//            At world size 2 this also gives a LEADING empty rank, with the
+//            single global record landing on rank 1.
+//   seam     R-01: forces an EMPTY rank between two populated ones, and at four
+//            ranks a trailing empty one too. Requires exactly 4 ranks.
+//   allempty every rank empty -- the degenerate case.
 //
 // EXIT STATUS is Allreduced so every rank returns the same code; otherwise
 // srun reports a confusing mix of successes and failures for one logical run.
