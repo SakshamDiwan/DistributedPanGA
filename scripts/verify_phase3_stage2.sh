@@ -14,9 +14,11 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-FIXTURES=$ROOT/tests/fixtures/yeast
+# Overridable so the suite can run against a small synthetic fixture as well
+# as the yeast reference. Defaults are the historical values.
+FIXTURES=${PGA_FIXTURES:-$ROOT/tests/fixtures/yeast}
 GOLD=$FIXTURES/gold.tuples
-GDB_STEM=$FIXTURES/yeast7
+GDB_STEM=${PGA_GDB_STEM:-$FIXTURES/yeast7}
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 

@@ -41,6 +41,7 @@
 #include "gene_core.h"
 #include "fastga_pipeline.h"
 #include "contig_assignment.h"
+#include "seed_exchange.h"
 
 // constants.h's #define KMER 40 collides with the runtime int variable.
 #undef KMER
@@ -150,28 +151,25 @@ static int64 redistribute_seeds(IOBuffer *units, int world_size, char tag,
         return size;
     }
 
-    int64 *send_sizes64 = calloc(world_size, sizeof(int64));
+    int64_t *send_sizes64 = calloc(world_size, sizeof(int64_t));
     int64  send_total64 = 0;
     for (int r = 0; r < world_size; r++) {
         send_sizes64[r] = lseek(units[r].file, 0, SEEK_END);
         if (send_sizes64[r] < 0) { perror("lseek"); MPI_Abort(MPI_COMM_WORLD, 1); }
         send_total64 += send_sizes64[r];
-        if (send_sizes64[r] > (int64) INT_MAX) {
-            fprintf(stderr, "rank %d: outgoing %c bytes to rank %d (%lld) > INT_MAX, "
-                            "MPI_Alltoallv chunking required (TODO)\n",
-                    my_rank, tag, r, (long long) send_sizes64[r]);
-            MPI_Abort(MPI_COMM_WORLD, 1);
-        }
     }
     uint8 *send_buf = malloc(send_total64 > 0 ? (size_t) send_total64 : 1);
     if (send_buf == NULL) { perror("malloc send_buf"); MPI_Abort(MPI_COMM_WORLD, 1); }
 
     int *send_counts = calloc(world_size, sizeof(int));
     int *send_displs = calloc(world_size, sizeof(int));
+    if (plan_byte_exchange(send_sizes64, world_size, send_counts, send_displs) != 0) {
+        fprintf(stderr, "rank %d: outgoing %c bytes exceed the int range of "
+                        "MPI_Alltoallv counts/displacements\n", my_rank, tag);
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
     int64 cum = 0;
     for (int r = 0; r < world_size; r++) {
-        send_displs[r] = (int) cum;
-        send_counts[r] = (int) send_sizes64[r];
         if (send_sizes64[r] > 0) {
             if (lseek(units[r].file, 0, SEEK_SET) < 0) { perror("lseek"); MPI_Abort(MPI_COMM_WORLD, 1); }
             int64 got = 0;

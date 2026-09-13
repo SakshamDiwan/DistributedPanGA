@@ -55,7 +55,8 @@ pga-merge: $(PHASE4_SRCS) $(LIB_SRCS)
 # Phase 4b — distributed merge + alignment. mpicc, links pga-mpi's stage 2
 # (dsort.c) and pga-merge's adapter + lifted FastGA pipeline.
 PHASE4B_SRCS = src/pga-mpi-merge.c $(CORE_SRCS) src/sort.c src/dsort.c \
-               src/kmer_adapter.c src/fastga_pipeline.c src/contig_assignment.c
+               src/kmer_adapter.c src/fastga_pipeline.c src/contig_assignment.c \
+               src/seed_exchange.c
 pga-mpi-merge: $(PHASE4B_SRCS) $(LIB_SRCS)
 	$(CC) $(CFLAGS) -o pga-mpi-merge $(PHASE4B_SRCS) $(LIB_SRCS) $(LIBS)
 
@@ -79,3 +80,98 @@ verify-phase3-stage2-lcp:
 
 clean:
 	rm -f pga-extract pga-sort pga-mpi-stage1 pga-mpi pga-merge pga-mpi-merge
+
+# ---------------------------------------------------------------------------
+# Tests.  See tests/CATALOG.md for the catalog (test IDs are cited in the sources).
+#
+# Tests compile with the production CFLAGS so -DLCPs matches the LCPS=1
+# default; a test built without it silently exercises the 0/1 LCP branch.
+# Each binary links only the production sources it actually needs.
+# ---------------------------------------------------------------------------
+TEST_CFLAGS  = $(CFLAGS) -I./tests/support
+TEST_SUPPORT = tests/support/check.c tests/support/synth_gdb.c \
+               tests/support/ref_syncmer.c tests/support/rec_build.c
+TEST_GDBLIB  = lib/GDB.c lib/gene_core.c lib/ONElib.c lib/ANO.c
+TEST_EXSRCS  = src/extract.c src/pack.c src/tables.c src/work_split.c src/record.c
+
+test-extract:
+	@mkdir -p tests/bin
+	gcc $(TEST_CFLAGS) -o tests/bin/test_extract tests/unit/test_extract.c \
+	    $(TEST_SUPPORT) $(TEST_EXSRCS) $(TEST_GDBLIB) $(LIBS)
+	tests/bin/test_extract
+
+# Same sources, reduced scan window: exercises the multi-window re-scan path
+# on a 200-base contig instead of a 20 Mbp one.
+test-extract-window:
+	@mkdir -p tests/bin
+	gcc $(TEST_CFLAGS) -DSCAN_MAX=64 -o tests/bin/test_extract_window \
+	    tests/unit/test_extract_window.c \
+	    $(TEST_SUPPORT) $(TEST_EXSRCS) $(TEST_GDBLIB) $(LIBS)
+	tests/bin/test_extract_window
+
+test-lcp-sort:
+	@mkdir -p tests/bin
+	gcc $(TEST_CFLAGS) -o tests/bin/test_lcp_sort tests/unit/test_lcp_sort.c \
+	    $(TEST_SUPPORT) src/sort.c $(TEST_EXSRCS) $(TEST_GDBLIB) lib/MSDsort.c $(LIBS)
+	tests/bin/test_lcp_sort
+
+test-record-split:
+	@mkdir -p tests/bin
+	gcc $(TEST_CFLAGS) -o tests/bin/test_record_split tests/unit/test_record_split.c \
+	    tests/support/check.c src/record.c src/work_split.c $(LIBS)
+	tests/bin/test_record_split
+
+test: test-record-split test-extract test-extract-window test-lcp-sort \
+      test-dsort test-assign test-adapter test-exchange-plan
+
+# Slow paths (production allocation growth) plus the sanitizers.
+test-asan:
+	@mkdir -p tests/bin
+	gcc $(TEST_CFLAGS) -fsanitize=address,undefined -O1 -g \
+	    -o tests/bin/test_lcp_sort_asan tests/unit/test_lcp_sort.c \
+	    $(TEST_SUPPORT) src/sort.c $(TEST_EXSRCS) $(TEST_GDBLIB) lib/MSDsort.c $(LIBS)
+	tests/bin/test_lcp_sort_asan --slow
+	gcc $(TEST_CFLAGS) -fsanitize=address,undefined -O1 -g \
+	    -o tests/bin/test_extract_asan tests/unit/test_extract.c \
+	    $(TEST_SUPPORT) $(TEST_EXSRCS) $(TEST_GDBLIB) $(LIBS)
+	tests/bin/test_extract_asan
+
+test-clean:
+	rm -rf tests/bin
+
+# dsort.h includes mpi.h for its prototypes, so this builds with $(CC); the
+# functions under test are pure and the binary runs as a single process.
+test-dsort:
+	@mkdir -p tests/bin
+	$(CC) $(TEST_CFLAGS) -o tests/bin/test_dsort tests/unit/test_dsort.c \
+	    $(TEST_SUPPORT) src/dsort.c src/sort.c $(TEST_EXSRCS) $(TEST_GDBLIB) \
+	    lib/MSDsort.c $(LIBS)
+	tests/bin/test_dsort
+
+test-assign:
+	@mkdir -p tests/bin
+	gcc $(TEST_CFLAGS) -o tests/bin/test_assign tests/unit/test_assign.c \
+	    tests/support/check.c src/contig_assignment.c $(LIBS)
+	tests/bin/test_assign
+
+test-adapter:
+	@mkdir -p tests/bin
+	gcc $(TEST_CFLAGS) -o tests/bin/test_adapter tests/unit/test_adapter.c \
+	    tests/support/check.c tests/support/rec_build.c tests/support/ref_syncmer.c \
+	    tests/support/synth_gdb.c src/kmer_adapter.c src/record.c src/tables.c \
+	    $(TEST_GDBLIB) $(LIBS)
+	tests/bin/test_adapter
+
+test-exchange-plan:
+	@mkdir -p tests/bin
+	gcc $(TEST_CFLAGS) -o tests/bin/test_exchange_plan tests/unit/test_exchange_plan.c \
+	    tests/support/check.c src/seed_exchange.c $(LIBS)
+	tests/bin/test_exchange_plan
+
+test-mpi:
+	@mkdir -p tests/bin
+	$(CC) $(TEST_CFLAGS) -o tests/bin/test_stage2 tests/mpi/test_stage2.c \
+	    tests/support/check.c tests/support/rec_build.c tests/support/ref_syncmer.c \
+	    tests/support/synth_gdb.c src/dsort.c src/sort.c $(TEST_EXSRCS) \
+	    $(TEST_GDBLIB) lib/MSDsort.c $(LIBS)
+	bash tests/run_mpi.sh
