@@ -297,17 +297,25 @@ static void mode_skew(void)
 
 // Mode "seam" -- R-01: an EMPTY rank sitting between two populated ranks.
 //
-// THIS TEST IS EXPECTED TO FAIL until the defect is fixed.  It asserts the
-// CORRECT LCP value, not the current one.
+// FIXED.  This test was landed as an expected failure, reproduced the defect
+// under real MPI, and the marker was removed only after the fix made it XPASS.
 //
-// THE DEFECT.  After sorting, each rank needs the last k-mer of the rank
-// before it, to compute the LCP of its own first record.  run_stage2 gets it
-// with a single MPI_Sendrecv between NEIGHBOURS -- it only ever looks one hop.
-// A rank holding no records has no last k-mer, so it sends an all-zero
-// sentinel.  Its successor then computes an LCP against 0x00... instead of
-// against the real predecessor, which is sitting two or more ranks back.  The
-// boundary CHECK passes vacuously, so nothing aborts and a wrong LCP byte
-// flows downstream into seed matching.
+// THE DEFECT WAS.  After sorting, each rank needs the last k-mer of the rank
+// before it, to compute the LCP of its own first record.  run_stage2 obtained
+// it with a single MPI_Sendrecv between NEIGHBOURS -- it only ever looked one
+// hop.  A rank holding no records has no last k-mer, so it sent an all-zero
+// sentinel.  Its successor then computed an LCP against 0x00... instead of
+// against the real predecessor, sitting two or more ranks back.  The boundary
+// CHECK passed vacuously, so nothing aborted and a wrong LCP byte flowed
+// downstream into seed matching.
+//
+// Observed before the fix: rank 2 reported LCP 0 where 4 is correct.  The same
+// defect also surfaced through mode_skew at world size 2, where the single
+// global record lands on rank 1 with rank 0 empty.
+//
+// Fixed by replacing the one-hop exchange with an MPI_Allgather of every rank's
+// (has-records, last-k-mer), from which each rank selects its nearest NON-EMPTY
+// predecessor (src/dsort.c).
 //
 // BUILDING A FIXTURE THAT FORCES AN EMPTY MIDDLE RANK.  Ownership is decided
 // by bucket, and a bucket is the first 5 bases: (kmer[0] << 2) | (kmer[1] >> 6).
@@ -411,7 +419,8 @@ static void mode_seam(void)
             {
                 int want = ref_lcp_bases(last0, first2);
                 printf("      [rank2 seam: observed LCP %u, correct %d]\n", lcp2, want);
-                EXPECT_FAIL_UNTIL("R-01", lcp2 == want);
+                CHECK_MSG(lcp2 == want,
+                          "seam LCP past an empty rank is %u, want %d", lcp2, want);
             }
         }
     }
