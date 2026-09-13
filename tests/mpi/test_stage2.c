@@ -298,6 +298,37 @@ static void mode_skew(void)
     record_buffer_free(&recv);
 }
 
+// Mode "allempty" -- every rank starts and ends with zero records.
+//
+// The degenerate end of the empty-rank family. Nothing should abort, no rank
+// should claim records, and no seam fixup should fire: with no non-empty rank
+// anywhere, nobody has a predecessor. Worth its own mode because the splitter
+// still has to produce a well-defined ownership map from an all-zero histogram,
+// and every guard in run_stage2 runs against empty buffers.
+static void mode_allempty(void)
+{
+    RecordBuffer local, recv;
+    int64_t mine, total = 0;
+
+    rb_alloc_exact(&local, SZ, 0);
+    CHECK_EQ_I(local.count, 0);
+
+    memset(&recv, 0, sizeof recv);
+    run_stage2(&local, &recv, MPI_COMM_WORLD);      /* must not abort */
+    rb_free(&local);
+
+    CHECK_MSG(recv.count == 0, "rank %d received %lld records from empty input",
+              RANK, (long long) recv.count);
+    CHECK_EQ_I(verify_per_rank_sorted(&recv, NULL), 0);
+
+    mine = recv.count;
+    MPI_Allreduce(&mine, &total, 1, MPI_LONG_LONG, MPI_SUM, MPI_COMM_WORLD);
+    CHECK_MSG(total == 0, "global record count is %lld, want 0", (long long) total);
+    if (RANK == 0) printf("      [all ranks empty, no abort, global count 0]\n");
+
+    record_buffer_free(&recv);
+}
+
 // Mode "seam" -- R-01: an EMPTY rank sitting between two populated ranks.
 //
 // FIXED.  This test was landed as an expected failure, reproduced the defect
@@ -446,6 +477,7 @@ int main(int argc, char **argv)
     if      (strcmp(mode, "uniform") == 0) mode_uniform(digest);
     else if (strcmp(mode, "skew")    == 0) mode_skew();
     else if (strcmp(mode, "seam")    == 0) mode_seam();
+    else if (strcmp(mode, "allempty") == 0) mode_allempty();
     else { if (RANK == 0) printf("unknown mode %s\n", mode); MPI_Finalize(); return 2; }
 
     // Every rank must exit with the same status, or srun reports a confusing mix.
