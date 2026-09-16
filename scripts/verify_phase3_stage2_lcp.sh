@@ -37,9 +37,11 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-FIXTURES=$ROOT/tests/fixtures/yeast
-GDB_STEM=$FIXTURES/yeast7
-GIX_FILE=$FIXTURES/yeast7.gix
+# Overridable so the suite can run against a small synthetic fixture as well
+# as the yeast reference. Defaults are the historical values.
+FIXTURES=${PGA_FIXTURES:-$ROOT/tests/fixtures/yeast}
+GDB_STEM=${PGA_GDB_STEM:-$FIXTURES/yeast7}
+GIX_FILE=${PGA_GIX_FILE:-$GDB_STEM.gix}
 ORACLE_FIXTURE=$FIXTURES/gold.lcp.kmers.simple
 WORK=$(mktemp -d)
 # Preserve $WORK on failure for postmortem; clean up on full success only.
