@@ -10,7 +10,11 @@
 #include "work_split.h"
 #include "GDB.h"
 
-#define SCAN_MAX 10000000   // must be divisible by 4
+// Overridable at compile time so tests can exercise the multi-window
+// re-scan path on a short contig. Must be divisible by 4.
+#ifndef SCAN_MAX
+#define SCAN_MAX 10000000
+#endif
 
 void tuple_buffer_init(TupleBuffer *b)
 {
