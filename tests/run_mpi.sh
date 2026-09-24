@@ -31,6 +31,7 @@ for N in $RANK_COUNTS; do
     echo "=== world_size=$N ==="
     srun -n "$N" "$BIN" uniform "$WORK/digest.$N" || status=1
     srun -n "$N" "$BIN" skew                      || status=1
+    srun -n "$N" "$BIN" allempty                  || status=1
 done
 
 # R-01 needs exactly 4 ranks.
