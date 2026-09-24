@@ -37,9 +37,14 @@ int simple_kmer_lcp_bases(const uint8_t *a, const uint8_t *b, int kbytes)
 // "bases in common" at part[] boundaries — see dsort.c §LCP encoding.
 void recalc_all_lcps(RecordBuffer *buf)
 {
-    if (buf->count <= 1) return;
+    // An empty buffer is a genuine no-op, but a single record is not: it has no
+    // predecessor, so its LCP is 0 -- exactly as for the first record of a
+    // longer buffer. Returning early for count == 1 left whatever msd_sort had
+    // written in byte 0. Reachable whenever a rank receives a one-record slice.
+    if (buf->count == 0) return;
     int rsize = buf->sizing.record_size;
     buf->data[0] = 0;
+    if (buf->count == 1) return;
     for (int64_t i = 1; i < buf->count; i++) {
         const uint8_t *prev = buf->data + (i - 1) * rsize + KMER_OFFSET;
         const uint8_t *curr = buf->data + i * rsize + KMER_OFFSET;

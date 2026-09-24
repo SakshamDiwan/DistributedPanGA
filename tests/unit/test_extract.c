@@ -459,10 +459,10 @@ static void e10_strand_roundtrip(void)
 
 // R-03 (extraction half) -- A real extraction that loses a position.
 //
-// THIS TEST IS EXPECTED TO FAIL until the defect is fixed.  It asserts the
-// CORRECT behaviour, not the current behaviour.
+// FIXED.  Landed as an expected failure asserting the CORRECT behaviour; the
+// marker was removed only after src/record.c was corrected and this XPASSed.
 //
-// The defect: positions are stored in `post_bytes` bytes, and
+// The defect was: positions are stored in `post_bytes` bytes, and
 // compute_record_sizing sets post_bytes = bytes_needed(maxctg).  But the
 // largest position actually emitted is maxctg, not maxctg-1, because an RC
 // record stores j + TMER and j can reach len - TMER:
@@ -507,11 +507,10 @@ static void r03_position_256_extraction(void)
     // Precondition: the oracle says this record must exist.
     CHECK_MSG(ref_is_selected(seq, 256, 244), "precondition: j=244 must be selected");
 
-    EXPECT_FAIL_UNTIL("R-03", at256 == 1);
-    if (at256 != 1)
-        printf("      [observed: RC records decoded at position 0: %lld "
-               "(position 256 truncated by post_bytes=%d)]\n",
-               (long long) at0, s.post_bytes);
+    CHECK_MSG(at256 == 1,
+              "expected exactly one RC record at position 256, got %lld "
+              "(and %lld at position 0, i.e. truncated by post_bytes=%d)",
+              (long long) at256, (long long) at0, s.post_bytes);
 
     ref_list_free(&got); synth_gdb_free(&sg); free(seq);
 }

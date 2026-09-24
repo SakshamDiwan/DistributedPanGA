@@ -252,8 +252,10 @@ int64_t verify_per_rank_sorted(const RecordBuffer *recv, int64_t *first_bad)
 
 int verify_cross_rank_boundaries(const RecordBuffer *recv,
                                  uint8_t *prev_last_kmer_out,
+                                 int *have_prev_out,
                                  MPI_Comm comm)
 {
+    int have_prev = 0;
     int my_rank, world_size;
     MPI_Comm_rank(comm, &my_rank);
     MPI_Comm_size(comm, &world_size);
@@ -282,17 +284,43 @@ int verify_cross_rank_boundaries(const RecordBuffer *recv,
     uint8_t prev_last[KBYTES];
     memset(prev_last, 0, KBYTES);
 
-    int prev = my_rank - 1;
-    int next = my_rank + 1;
+    // Find the last k-mer of the nearest NON-EMPTY rank before this one.
+    //
+    // A one-hop MPI_Sendrecv is wrong here: a rank holding no records has no
+    // last k-mer, so it would contribute an all-zero sentinel and its successor
+    // would compute its seam LCP against that instead of against the real
+    // predecessor, which may be several ranks back. The boundary check would
+    // also pass vacuously against the sentinel.
+    //
+    // World size is bounded (contig assignment caps it at 127) and the payload
+    // is KBYTES+1 per rank, so an Allgather is cheap and obviously correct.
+    {
+        int      stride = KBYTES + 1;
+        uint8_t  mine[KBYTES + 1];
+        uint8_t *all = (uint8_t *) malloc((size_t) world_size * stride);
 
-    MPI_Sendrecv(my_last,  KBYTES, MPI_BYTE,
-                 (next < world_size) ? next : MPI_PROC_NULL, 100,
-                 prev_last, KBYTES, MPI_BYTE,
-                 (prev >= 0)         ? prev : MPI_PROC_NULL, 100,
-                 comm, MPI_STATUS_IGNORE);
+        if (all == NULL)
+        {
+            fprintf(stderr, "verify_cross_rank_boundaries: out of memory\n");
+            MPI_Abort(comm, 1);
+        }
+
+        mine[0] = (uint8_t) (have_records ? 1 : 0);
+        memcpy(mine + 1, my_last, KBYTES);
+        MPI_Allgather(mine, stride, MPI_BYTE, all, stride, MPI_BYTE, comm);
+
+        for (int r = my_rank - 1; r >= 0; r--)
+            if (all[(size_t) r * stride])                 // that rank had records
+            {
+                memcpy(prev_last, all + (size_t) r * stride + 1, KBYTES);
+                have_prev = 1;
+                break;
+            }
+        free(all);
+    }
 
     int local_bad = 0;
-    if (my_rank > 0 && have_records)
+    if (have_prev && have_records)
     {
         if (memcmp(prev_last, my_first, KBYTES) > 0)
             local_bad = 1;
@@ -300,6 +328,8 @@ int verify_cross_rank_boundaries(const RecordBuffer *recv,
 
     if (prev_last_kmer_out)
         memcpy(prev_last_kmer_out, prev_last, KBYTES);
+    if (have_prev_out)
+        *have_prev_out = have_prev;
 
     int global_bad;
     MPI_Allreduce(&local_bad, &global_bad, 1, MPI_INT, MPI_SUM, comm);
@@ -406,7 +436,9 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
 
     // Cross-rank boundary check; also collects prev_last for the LCP fixup below.
     uint8_t prev_last_kmer[KBYTES];
-    int boundary_bad = verify_cross_rank_boundaries(recv, prev_last_kmer, comm);
+    int have_prev = 0;
+    int boundary_bad = verify_cross_rank_boundaries(recv, prev_last_kmer,
+                                                    &have_prev, comm);
     if (boundary_bad != 0)
     {
         if (my_rank == 0)
@@ -427,7 +459,11 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
     //                            for every other record.
     //
     //   LCPS=0 build (testing):  byte 0 is a 0/1 boundary marker.
-    if (my_rank > 0 && recv->count > 0)
+    // Only when a non-empty predecessor actually exists. If every rank before
+    // this one is empty, this rank holds the globally first record, whose LCP
+    // recalc_all_lcps already set to 0 -- overwriting it here would measure it
+    // against a sentinel that corresponds to no real k-mer.
+    if (have_prev && recv->count > 0)
     {
         const uint8_t *my_first = recv->data + KMER_OFFSET;
 #ifdef LCPs

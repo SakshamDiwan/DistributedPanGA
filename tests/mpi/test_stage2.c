@@ -29,8 +29,11 @@
 //            M-02 (global ordering), M-03 (LCP correctness including seams),
 //            M-05 (repeatability), and writes the digest M-06 compares.
 //   skew     M-04: rank 0 starts with zero records and rank 1 with exactly one.
-//   seam     R-01: forces an EMPTY rank between two populated ones.
-//            Requires exactly 4 ranks.
+//            At world size 2 this also gives a LEADING empty rank, with the
+//            single global record landing on rank 1.
+//   seam     R-01: forces an EMPTY rank between two populated ones, and at four
+//            ranks a trailing empty one too. Requires exactly 4 ranks.
+//   allempty every rank empty -- the degenerate case.
 //
 // EXIT STATUS is Allreduced so every rank returns the same code; otherwise
 // srun reports a confusing mix of successes and failures for one logical run.
@@ -295,19 +298,58 @@ static void mode_skew(void)
     record_buffer_free(&recv);
 }
 
+// Mode "allempty" -- every rank starts and ends with zero records.
+//
+// The degenerate end of the empty-rank family. Nothing should abort, no rank
+// should claim records, and no seam fixup should fire: with no non-empty rank
+// anywhere, nobody has a predecessor. Worth its own mode because the splitter
+// still has to produce a well-defined ownership map from an all-zero histogram,
+// and every guard in run_stage2 runs against empty buffers.
+static void mode_allempty(void)
+{
+    RecordBuffer local, recv;
+    int64_t mine, total = 0;
+
+    rb_alloc_exact(&local, SZ, 0);
+    CHECK_EQ_I(local.count, 0);
+
+    memset(&recv, 0, sizeof recv);
+    run_stage2(&local, &recv, MPI_COMM_WORLD);      /* must not abort */
+    rb_free(&local);
+
+    CHECK_MSG(recv.count == 0, "rank %d received %lld records from empty input",
+              RANK, (long long) recv.count);
+    CHECK_EQ_I(verify_per_rank_sorted(&recv, NULL), 0);
+
+    mine = recv.count;
+    MPI_Allreduce(&mine, &total, 1, MPI_LONG_LONG, MPI_SUM, MPI_COMM_WORLD);
+    CHECK_MSG(total == 0, "global record count is %lld, want 0", (long long) total);
+    if (RANK == 0) printf("      [all ranks empty, no abort, global count 0]\n");
+
+    record_buffer_free(&recv);
+}
+
 // Mode "seam" -- R-01: an EMPTY rank sitting between two populated ranks.
 //
-// THIS TEST IS EXPECTED TO FAIL until the defect is fixed.  It asserts the
-// CORRECT LCP value, not the current one.
+// FIXED.  This test was landed as an expected failure, reproduced the defect
+// under real MPI, and the marker was removed only after the fix made it XPASS.
 //
-// THE DEFECT.  After sorting, each rank needs the last k-mer of the rank
-// before it, to compute the LCP of its own first record.  run_stage2 gets it
-// with a single MPI_Sendrecv between NEIGHBOURS -- it only ever looks one hop.
-// A rank holding no records has no last k-mer, so it sends an all-zero
-// sentinel.  Its successor then computes an LCP against 0x00... instead of
-// against the real predecessor, which is sitting two or more ranks back.  The
-// boundary CHECK passes vacuously, so nothing aborts and a wrong LCP byte
-// flows downstream into seed matching.
+// THE DEFECT WAS.  After sorting, each rank needs the last k-mer of the rank
+// before it, to compute the LCP of its own first record.  run_stage2 obtained
+// it with a single MPI_Sendrecv between NEIGHBOURS -- it only ever looked one
+// hop.  A rank holding no records has no last k-mer, so it sent an all-zero
+// sentinel.  Its successor then computed an LCP against 0x00... instead of
+// against the real predecessor, sitting two or more ranks back.  The boundary
+// CHECK passed vacuously, so nothing aborted and a wrong LCP byte flowed
+// downstream into seed matching.
+//
+// Observed before the fix: rank 2 reported LCP 0 where 4 is correct.  The same
+// defect also surfaced through mode_skew at world size 2, where the single
+// global record lands on rank 1 with rank 0 empty.
+//
+// Fixed by replacing the one-hop exchange with an MPI_Allgather of every rank's
+// (has-records, last-k-mer), from which each rank selects its nearest NON-EMPTY
+// predecessor (src/dsort.c).
 //
 // BUILDING A FIXTURE THAT FORCES AN EMPTY MIDDLE RANK.  Ownership is decided
 // by bucket, and a bucket is the first 5 bases: (kmer[0] << 2) | (kmer[1] >> 6).
@@ -411,7 +453,8 @@ static void mode_seam(void)
             {
                 int want = ref_lcp_bases(last0, first2);
                 printf("      [rank2 seam: observed LCP %u, correct %d]\n", lcp2, want);
-                EXPECT_FAIL_UNTIL("R-01", lcp2 == want);
+                CHECK_MSG(lcp2 == want,
+                          "seam LCP past an empty rank is %u, want %d", lcp2, want);
             }
         }
     }
@@ -434,6 +477,7 @@ int main(int argc, char **argv)
     if      (strcmp(mode, "uniform") == 0) mode_uniform(digest);
     else if (strcmp(mode, "skew")    == 0) mode_skew();
     else if (strcmp(mode, "seam")    == 0) mode_seam();
+    else if (strcmp(mode, "allempty") == 0) mode_allempty();
     else { if (RANK == 0) printf("unknown mode %s\n", mode); MPI_Finalize(); return 2; }
 
     // Every rank must exit with the same status, or srun reports a confusing mix.

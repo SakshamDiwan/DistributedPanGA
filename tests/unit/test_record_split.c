@@ -53,8 +53,9 @@ static int bytes_for_max_value(int64_t max_value)
 // R-03 (width half) -- post_bytes must be able to hold every position that
 //                       extraction can actually emit.
 //
-// PART OF THIS TEST IS EXPECTED TO FAIL until the defect is fixed.  The table
-// states the CORRECT widths, not the current ones.
+// FIXED.  This table was landed as an expected failure stating the CORRECT
+// widths; src/record.c was then corrected and the markers removed, so these
+// assertions are known to have had real power.
 //
 // The reasoning.  It is tempting to assume positions run 0..maxctg-1, which is
 // what bytes_needed(maxctg) computes.  But a reverse-complement record stores
@@ -87,15 +88,9 @@ static void r03_post_bytes_representability(void)
         CHECK_MSG(bytes_for_max_value(m) == want,
                   "table self-check failed for maxctg=%lld", (long long) m);
 
-        if (got == want) {
-            CHECK_MSG(got == want, "maxctg=%lld", (long long) m);
-        } else {
-            // Defect bites exactly at maxctg = 256^k, where bytes_needed's
-            // `while (cum < max_val)` stops one byte short.
-            printf("      [maxctg=%lld: post_bytes=%d, need %d to hold position %lld]\n",
-                   (long long) m, got, want, (long long) m);
-            EXPECT_FAIL_UNTIL("R-03", got == want);
-        }
+        CHECK_MSG(got == want,
+                  "maxctg=%lld: post_bytes=%d, need %d to hold position %lld",
+                  (long long) m, got, want, (long long) m);
     }
 }
 
