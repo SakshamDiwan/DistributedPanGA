@@ -1,6 +1,6 @@
 # State / handoff
 
-Last updated: 2026-10-11.
+Last updated: 2026-10-11 (after O1-0).
 
 ## Current objective
 
@@ -63,8 +63,23 @@ is **O1-0** (instrumentation and the tie-order experiment), then **O1a**.
   - The CSV reports only `MPI_MAX` per stage, so `total_s` overstates wall
     time at N=8.
 
+## O1-0 (done, job 59679320)
+
+Findings are in `o1-0-results.md`.
+- **Measured:**
+  - Work is balanced across ranks.
+  - Each extracted record costs one `lseek` syscall (`fseeko` in
+    `Get_Contig_Piece`).
+  - Per-rank system time stays at 19–30 s whatever N is.
+  - The N=8 `sort_s` rise is Allreduce wait.
+  - The shuffled pre-sort order gives an identical PAF (yeast7, N=1/4,
+    3 seeds).
+- **Hypotheses:** the `lseek`s dominate extraction (H1), and contention on
+  the shared file causes the N=8 regression (H2).
+
 ## Next action
 
-Implement O1-0 on a new branch. Default paths must stay byte-identical. Run
-the gates, then give the user one sbatch that repeats the Job D configuration
-with the new per-rank output, plus the shuffle runs.
+Implement **O1a** (pack k-mers from the scan window) on a branch off
+`o1/0-instrumentation`. Its measurement job must include the H2 control:
+baseline and O1a binaries, with the GDB on Lustre and on node-local `/tmp`,
+at N=1 and N=8. Gates as in `o1-design.md` §5.
