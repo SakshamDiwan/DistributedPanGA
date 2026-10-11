@@ -343,7 +343,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,
                 "[o1-0] rank %d: extract_s=%.6f contigs=%lld bases=%lld "
                 "records=%lld window_reads=%lld window_bases=%lld "
-                "pack_reads=%lld pack_bases=%lld "
+                "pack_reads=%lld pack_bases=%lld window_packs=%lld "
                 "hist_s=%.6f pack_s=%.6f exchange_s=%.6f shuffle_s=%.6f "
                 "local_sort_s=%.6f verify_s=%.6f sort_stage_s=%.6f "
                 "slice_records=%lld\n",
@@ -351,6 +351,7 @@ int main(int argc, char *argv[])
                 (long long) es->bases, (long long) extracted_records,
                 (long long) es->window_reads, (long long) es->window_bases,
                 (long long) es->pack_reads, (long long) es->pack_bases,
+                (long long) es->window_packs,
                 st->hist_s, st->pack_s, st->exchange_s, st->shuffle_s,
                 st->local_sort_s, st->verify_s, t_sort,
                 (long long) recv.count);

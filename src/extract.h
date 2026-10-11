@@ -49,7 +49,9 @@ typedef struct {
     int64_t window_reads;   // Get_Contig_Piece calls by the scan windows
     int64_t window_bases;   // bases requested by those calls
     int64_t pack_reads;     // Get_Contig_Piece calls by pack_forward/rc_kmer
+                            // (since O1a: only window-edge fallbacks)
     int64_t pack_bases;     // bases requested by those calls
+    int64_t window_packs;   // k-mers packed straight from the scan window
 } ExtractStats;
 
 extern ExtractStats g_extract_stats;

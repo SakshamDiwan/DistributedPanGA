@@ -14,4 +14,11 @@ int pack_forward_kmer(GDB *gdb, int contig_id, int64_t j, uint8_t *out);
 // Returns 0 on success, -1 if the source range extends past contig.
 int pack_rc_kmer(GDB *gdb, int contig_id, int64_t j, uint8_t *out);
 
+// The same packings from bases already in memory (NUMERIC, one base per byte).
+// Forward: bases[0..39] are contig bases [j, j+40).
+// RC:      bases[0..39] are contig bases [j-28, j+12) (forward strand).
+// pack_*_kmer above fetch the bases with Get_Contig_Piece and then call these.
+void pack_forward_bases(const uint8_t *bases, uint8_t *out);
+void pack_rc_bases(const uint8_t *bases, uint8_t *out);
+
 #endif

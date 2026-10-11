@@ -135,6 +135,10 @@ test-asan:
 	    -o tests/bin/test_extract_asan tests/unit/test_extract.c \
 	    $(TEST_SUPPORT) $(TEST_EXSRCS) $(TEST_GDBLIB) $(LIBS)
 	tests/bin/test_extract_asan
+	gcc $(TEST_CFLAGS) -fsanitize=address,undefined -O1 -g -DSCAN_MAX=64 \
+	    -o tests/bin/test_extract_window_asan tests/unit/test_extract_window.c \
+	    $(TEST_SUPPORT) $(TEST_EXSRCS) $(TEST_GDBLIB) $(LIBS)
+	tests/bin/test_extract_window_asan
 
 test-clean:
 	rm -rf tests/bin
