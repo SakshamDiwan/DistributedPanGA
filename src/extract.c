@@ -16,6 +16,13 @@
 #define SCAN_MAX 10000000
 #endif
 
+ExtractStats g_extract_stats;
+
+void extract_stats_reset(void)
+{
+    memset(&g_extract_stats, 0, sizeof(g_extract_stats));
+}
+
 void tuple_buffer_init(TupleBuffer *b)
 {
     b->capacity = 1 << 20;
@@ -86,6 +93,10 @@ static void scan_contig(GDB *gdb, int r, char *SEQ_buf, EmitFn emit, void *user)
     else
         end = len;
 
+    g_extract_stats.contigs      += 1;
+    g_extract_stats.bases        += len;
+    g_extract_stats.window_reads += 1;
+    g_extract_stats.window_bases += end;
     seq = (uint8_t *) Get_Contig_Piece(gdb, r, 0, end, NUMERIC, SEQ_buf);
 
     lnK = len - KMER;
@@ -202,6 +213,8 @@ static void scan_contig(GDB *gdb, int r, char *SEQ_buf, EmitFn emit, void *user)
         if (end > len)
             end = len;
         beg -= (SMER - 1);
+        g_extract_stats.window_reads += 1;
+        g_extract_stats.window_bases += end - (beg + (SMER - 1));
         sn = (uint8_t *) Get_Contig_Piece(gdb, r,
                                           beg + (SMER - 1), end,
                                           NUMERIC, SEQ_buf) - beg;

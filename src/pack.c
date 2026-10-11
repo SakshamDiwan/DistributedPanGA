@@ -1,6 +1,7 @@
 #include "pack.h"
 #include "constants.h"
 #include "tables.h"
+#include "extract.h"
 
 int pack_forward_kmer(GDB *gdb, int contig_id, int64_t j, uint8_t *out)
 {
@@ -16,6 +17,8 @@ int pack_forward_kmer(GDB *gdb, int contig_id, int64_t j, uint8_t *out)
     if (begb < 0 || endb > clen)
         return -1;
 
+    g_extract_stats.pack_reads += 1;
+    g_extract_stats.pack_bases += endb - begb;
     bases = (uint8_t *) Get_Contig_Piece(gdb, contig_id, (int) begb, (int) endb, NUMERIC, buf);
     if (bases == NULL)
         return -1;
@@ -43,6 +46,8 @@ int pack_rc_kmer(GDB *gdb, int contig_id, int64_t j, uint8_t *out)
     if (begb < 0 || endb > clen)
         return -1;
 
+    g_extract_stats.pack_reads += 1;
+    g_extract_stats.pack_bases += endb - begb;
     bases = (uint8_t *) Get_Contig_Piece(gdb, contig_id, (int) begb, (int) endb, NUMERIC, buf);
     if (bases == NULL)
         return -1;
