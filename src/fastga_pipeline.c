@@ -1022,21 +1022,56 @@ static int ALIGN_SORT(const void *l, const void *r)
 // ============================================================================
 
 // align_contigs plus, if Pair_Task_Hook is set, a per-task record (PR 1).
+// The diagonal features are read the same way align_contigs reads them: the
+// diagonal is DBYTE little-endian bytes at offset DBYTE+2 of each seed entry,
+// and the entries are sorted by diagonal.
 static void timed_align_contigs(uint8 *b, uint8 *x, int swide, int ctg1, int ctg2,
                                 Contig_Bundle *pair, int comp)
-{ double t0;
-  int64  nh, nl;
+{ PairTaskRecord r;
+  double t0;
+  int64  nh, nl, nv, nc;
+  int64  d, prev, run;
+  uint8 *s;
 
   if (Pair_Task_Hook == NULL)
     { align_contigs(b,x,swide,ctg1,ctg2,pair);
       return;
     }
+  bzero(&r,sizeof(r));
+  r.tid     = pair->tid;
+  r.comp    = comp;
+  r.anchor  = ctg1;
+  r.partner = ctg2;
+  r.alen    = pair->gdb1->contigs[Perm1[ctg1]].clen;
+  r.blen    = pair->gdb2->contigs[Perm2[ctg2]].clen;
+  r.nseeds  = (x-b)/swide;
+  prev = -1;
+  run  = 0;
+  for (s = b; s < x; s += swide)
+    { d = 0;
+      memcpy(&d,s+DBYTE+2,DBYTE);
+      if (d != prev)
+        { r.ndiag += 1;
+          run = 0;
+          prev = d;
+        }
+      run += 1;
+      if (run > r.maxdiag)
+        r.maxdiag = run;
+    }
+
   nh = pair->nhits;
   nl = pair->nlass;
+  nv = pair->nlive;
+  nc = pair->nlcov;
   t0 = pss_now();
   align_contigs(b,x,swide,ctg1,ctg2,pair);
-  Pair_Task_Hook(pair->tid,comp,ctg1,ctg2,(x-b)/swide,pss_now()-t0,
-                 pair->nhits-nh,pair->nlass-nl);
+  r.seconds = pss_now()-t0;
+  r.nhits   = pair->nhits-nh;
+  r.nlass   = pair->nlass-nl;
+  r.nlive   = pair->nlive-nv;
+  r.nlcov   = pair->nlcov-nc;
+  Pair_Task_Hook(&r);
 }
 
 void *search_seeds(void *args)
