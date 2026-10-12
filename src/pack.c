@@ -1,6 +1,7 @@
 #include "pack.h"
 #include "constants.h"
 #include "tables.h"
+#include "extract.h"
 
 int pack_forward_kmer(GDB *gdb, int contig_id, int64_t j, uint8_t *out)
 {
@@ -11,14 +12,23 @@ int pack_forward_kmer(GDB *gdb, int contig_id, int64_t j, uint8_t *out)
     char    raw[65];
     char   *buf = raw + 1;
     uint8_t *bases;
-    int     i;
 
     if (begb < 0 || endb > clen)
         return -1;
 
+    g_extract_stats.pack_reads += 1;
+    g_extract_stats.pack_bases += endb - begb;
     bases = (uint8_t *) Get_Contig_Piece(gdb, contig_id, (int) begb, (int) endb, NUMERIC, buf);
     if (bases == NULL)
         return -1;
+
+    pack_forward_bases(bases, out);
+    return 0;
+}
+
+void pack_forward_bases(const uint8_t *bases, uint8_t *out)
+{
+    int i;
 
     for (i = 0; i < KBYTES; i++)
     {
@@ -26,7 +36,6 @@ int pack_forward_kmer(GDB *gdb, int contig_id, int64_t j, uint8_t *out)
         out[i] = (uint8_t) ((bases[p]   << 6) | (bases[p+1] << 4)
                           | (bases[p+2] << 2) |  bases[p+3]);
     }
-    return 0;
 }
 
 int pack_rc_kmer(GDB *gdb, int contig_id, int64_t j, uint8_t *out)
@@ -38,14 +47,23 @@ int pack_rc_kmer(GDB *gdb, int contig_id, int64_t j, uint8_t *out)
     char    raw[65];
     char   *buf = raw + 1;
     uint8_t *bases;
-    int     b;
 
     if (begb < 0 || endb > clen)
         return -1;
 
+    g_extract_stats.pack_reads += 1;
+    g_extract_stats.pack_bases += endb - begb;
     bases = (uint8_t *) Get_Contig_Piece(gdb, contig_id, (int) begb, (int) endb, NUMERIC, buf);
     if (bases == NULL)
         return -1;
+
+    pack_rc_bases(bases, out);
+    return 0;
+}
+
+void pack_rc_bases(const uint8_t *bases, uint8_t *out)
+{
+    int b;
 
     // bases[k] = forward NUMERIC base at contig position (j-28 + k), k in [0, 40).
     // For byte b in [0, KBYTES), the four source positions are [j+8-4b, j+11-4b],
@@ -57,5 +75,4 @@ int pack_rc_kmer(GDB *gdb, int contig_id, int64_t j, uint8_t *out)
                                 | (bases[p3+2] << 2) |  bases[p3+3]);
         out[b] = (uint8_t) Comp[fwd4];
     }
-    return 0;
 }

@@ -73,8 +73,25 @@ void organize_send_buffer(const RecordBuffer *local, const int *select,
 //
 // Caller must free `recv` (record_buffer_free) when done.
 // `local` is NOT freed by this call.
+//
+// Experiment hook, off by default: if PGA_PRESORT_SHUFFLE is set to a
+// non-negative integer seed, the received records are permuted (seeded by
+// seed and rank) before sort_records. Used to test whether downstream output
+// depends on the pre-sort order of equal k-mers.
 void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm);
 
+// Per-rank phase times of the most recent run_stage2 call (O1-0
+// instrumentation; MPI_Wtime seconds, not reduced across ranks).
+typedef struct {
+    double hist_s;        // bucket_local_counts + Allreduce + destination map
+    double pack_s;        // organize_send_buffer
+    double exchange_s;    // Alltoall of counts + recv alloc + Alltoallv
+    double shuffle_s;     // PGA_PRESORT_SHUFFLE permutation (0 when unset)
+    double local_sort_s;  // sort_records + recalc_all_lcps
+    double verify_s;      // local/cross-rank checks + seam fixup
+} Stage2Timing;
+
+extern Stage2Timing g_stage2_timing;
 
 // Walk recv->data, assert non-decreasing k-mer-byte order.
 // Returns: number of out-of-order pairs (0 = sorted). If first_bad is non-NULL

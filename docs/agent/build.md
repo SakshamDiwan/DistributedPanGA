@@ -78,6 +78,21 @@ make CC=cc pga-mpi-merge
 confirms a different MPI library is being linked. Use one or the other
 consistently; do not mix binaries from the two wrappers in one measurement.
 
+**`cc` needs `module load cpu; module unload darshan` first [executed
+2026-09-25].** Under the default modules `cc` links `libdarshan` (and CUDA/GTL)
+into every MPI binary. Once `MPI_Init` has run, darshan leaves `errno == 95`
+behind a successful write, and vendored ONElib's post-`fclose` errno check
+(`lib/ONElib.c:412`) then dies with `failed to write temporary file
+/tmp/OneTextSchema-… errno 95` — so `pga-mpi-stage1`, `pga-mpi` and
+`pga-mpi-merge` all exit 255 before doing any work, while `pga-extract` (no
+MPI) and `test_stage2` (no ONE schema) pass. Build and run in the same
+environment:
+
+```bash
+module load cpu; module unload darshan
+make clean && make -B CC=cc all     # check: ldd pga-mpi-merge | grep -c darshan  -> 0
+```
+
 Dependencies are all satisfied by the default environment: pthreads, libm,
 zlib. Nothing needs to be installed to build.
 

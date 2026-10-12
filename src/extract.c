@@ -16,6 +16,22 @@
 #define SCAN_MAX 10000000
 #endif
 
+// Bases of left context re-read in front of every window after the first, so
+// k-mers that start before the window (forward from j >= start-11, RC from
+// j-28 >= start-39) can be packed from the window buffer. Multiple of 4.
+#define KMER_CARRY KMER
+
+#if SCAN_MAX < KMER_CARRY
+#error "SCAN_MAX must be at least KMER_CARRY"
+#endif
+
+ExtractStats g_extract_stats;
+
+void extract_stats_reset(void)
+{
+    memset(&g_extract_stats, 0, sizeof(g_extract_stats));
+}
+
 void tuple_buffer_init(TupleBuffer *b)
 {
     b->capacity = 1 << 20;
@@ -76,6 +92,8 @@ static void scan_contig(GDB *gdb, int r, char *SEQ_buf, EmitFn emit, void *user)
     int mzr[8];
     int min4, pos4;
     int lnK, KMT;
+    int wlo, whi;      // contig range [wlo, whi) held in the window buffer
+    uint8_t *wb;       // wb[k] = NUMERIC base at contig position k, k in [wlo, whi)
 
     if (gdb->contigs[r].boff < 0)
         return;
@@ -86,7 +104,14 @@ static void scan_contig(GDB *gdb, int r, char *SEQ_buf, EmitFn emit, void *user)
     else
         end = len;
 
+    g_extract_stats.contigs      += 1;
+    g_extract_stats.bases        += len;
+    g_extract_stats.window_reads += 1;
+    g_extract_stats.window_bases += end;
     seq = (uint8_t *) Get_Contig_Piece(gdb, r, 0, end, NUMERIC, SEQ_buf);
+    wlo = 0;
+    whi = end;
+    wb  = seq;
 
     lnK = len - KMER;
     KMT = KMER - TMER;
@@ -180,16 +205,31 @@ static void scan_contig(GDB *gdb, int r, char *SEQ_buf, EmitFn emit, void *user)
             (void) w;  // w isn't needed here; the bucket is recomputed in Phase 2 from packed bytes
             (void) c;  // same reason
 
+            // Pack from the window when the k-mer's bases are all in it;
+            // otherwise (forward k-mer running past a non-final window's
+            // right edge) fetch them with Get_Contig_Piece as before.
             if (j <= lnK)
             {
                 uint8_t kmer_buf[KBYTES];
-                if (pack_forward_kmer(gdb, r, j, kmer_buf) == 0)
+                if (j >= wlo && j + KMER <= whi)
+                {
+                    pack_forward_bases(wb + j, kmer_buf);
+                    g_extract_stats.window_packs += 1;
+                    emit(user, r, j, 0, kmer_buf);
+                }
+                else if (pack_forward_kmer(gdb, r, j, kmer_buf) == 0)
                     emit(user, r, j, 0, kmer_buf);
             }
             if (j >= KMT)
             {
                 uint8_t kmer_buf[KBYTES];
-                if (pack_rc_kmer(gdb, r, j, kmer_buf) == 0)
+                if (j - KMT >= wlo && j + TMER <= whi)
+                {
+                    pack_rc_bases(wb + (j - KMT), kmer_buf);
+                    g_extract_stats.window_packs += 1;
+                    emit(user, r, j + TMER, 1, kmer_buf);
+                }
+                else if (pack_rc_kmer(gdb, r, j, kmer_buf) == 0)
                     emit(user, r, j + TMER, 1, kmer_buf);
             }
         }
@@ -202,9 +242,15 @@ static void scan_contig(GDB *gdb, int r, char *SEQ_buf, EmitFn emit, void *user)
         if (end > len)
             end = len;
         beg -= (SMER - 1);
-        sn = (uint8_t *) Get_Contig_Piece(gdb, r,
-                                          beg + (SMER - 1), end,
-                                          NUMERIC, SEQ_buf) - beg;
+        // The scan still sees sn[i] = base i+SMER-1 for i >= beg; the window
+        // additionally holds KMER_CARRY bases before beg+SMER-1 for packing.
+        wlo = beg + (SMER - 1) - KMER_CARRY;
+        whi = end;
+        g_extract_stats.window_reads += 1;
+        g_extract_stats.window_bases += whi - wlo;
+        wb = (uint8_t *) Get_Contig_Piece(gdb, r, wlo, whi,
+                                          NUMERIC, SEQ_buf) - wlo;
+        sn = wb + (SMER - 1);
     }
 }
 
@@ -292,7 +338,7 @@ static void run_scan(GDB *gdb, int num_workers, int worker_id, EmitFn emit, void
 
     init_comp_table();
 
-    char *SEQ_buf = (char *) malloc(SCAN_MAX + 8);
+    char *SEQ_buf = (char *) malloc(SCAN_MAX + 8 + KMER_CARRY);
     if (SEQ_buf == NULL)
     {
         fprintf(stderr, "run_scan: out of memory for SEQ buffer\n");

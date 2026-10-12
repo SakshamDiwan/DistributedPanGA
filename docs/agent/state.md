@@ -1,142 +1,105 @@
 # State / handoff
 
-Last updated: 2026-09-10.
+Last updated: 2026-10-11 (after O1a).
 
 ## Current objective
 
-Agent context for the DistributedPanGA checkout is set up. The next piece of
-work is the optimization proposal (O1–O5 in `research-plan.md`), which cannot
-start from measurements yet because no gold fixtures exist here.
+Week 1 is complete: verified commit, yeast7 baseline and O1 design. Next is
+O1, revised in `o1-design.md` (revision 2) so that the HySortK contribution is
+the destination-aware staging (O1c), not just threading. The first code step
+is **O1-0** (instrumentation and the tie-order experiment), then **O1a**.
 
-## Inspected commit
+## Commit and environment
 
-`ce64406b45908451bd161466ebab0646cc84b92d` ("completed implementation with
-phase wise validation"), on branch `chore/agent-context`. That branch was
-created from this commit; `main` and `origin/main` point at the same commit, so
-the checkout matched the grounding revision exactly and no reconciliation was
-needed. The working tree was clean before this documentation change.
+- `b4f5d3b` (merged `main`), branch `chore/week1-baseline`.
+- Build and run under `module load cpu; module unload darshan` with `cc`
+  (`build.md`).
+- FastGA tools are in `~/FASTGA` (`178afcb`).
+- yeast7 fixtures live in `$SCRATCH/pga-fixtures/`, symlinked from
+  `tests/fixtures/`. Scratch is purged after ~8 weeks idle; regenerate with
+  `~/pga-jobs/week1/pga_w1_B.sbatch`.
+- Job scripts and logs: `~/pga-jobs/week1/`. The user submits all Slurm jobs.
 
-Tracked top-level content: `Makefile`, `.gitignore`, `src/`, `lib/`,
-`scripts/`, `notes/`. No tracked README or tests upstream. Several script
-comments reference `implementation_plan.md` and `src/phase4b_runtime_testing_plan.md`,
-which **do not exist** in the repository (`*.md` is `.gitignore`d), so those
-cross-references are dead ends.
+## Validation executed (all green)
 
-## Validation actually performed
+- **Small fixture** (job 58873003): unit (42,471 checks), ASan/UBSan, MPI tier
+  at ws 1–8, all phase verifiers, e2e.
+- **yeast7:** phase1/2/stage1/stage2/LCP at N=1/2/4/8 (jobs 58873975 and
+  59676624).
+- **yeast7 e2e:** sorted, duplicate-preserving PAF `cmp` vs FastGA gold
+  matches in all 16 runs (jobs 58873975 and 59676625).
+- Details: `tests/RESULTS.md`. Timings: `baseline.md`.
 
-Executed on a Perlmutter login node:
+## Key baseline facts
 
-| Check | Result |
-|---|---|
-| `make all` | exit 0; all six binaries produced |
-| `make -B CC=cc pga-mpi` | exit 0; 409128 B vs 388888 B from `mpicc` (different MPI linked) |
-| `make -n LCPS=0 pga-mpi`, `make -n CFLAGS=-O2 pga-mpi` | both "up to date" — staleness pitfall confirmed |
-| `make -Bn CFLAGS=-O2 pga-mpi` | `-DLCPs`, `-I` and `-fno-strict-aliasing` all absent — override pitfall confirmed |
-| driver-only compile of `src/pga-mpi-merge.c` | two dead-code warnings (below) |
-| MPI-4 large-count probe | `MPI_Alltoallv_c`/`MPI_Alltoall_c` link; `MPI_Count` is 8 B; MPI 4.1 via `cc`, 4.0 via `mpicc` |
-| Slurm/account probe | `m4341` has `interactive` and `debug` QOS; CPU node = 128 physical / 256 logical cores, ~503 GiB |
-
-**Not executed:** every `make verify-phase*` target, `scripts/make_gold.sh`,
-`scripts/runtime_test_phase4b.sh`, and any `srun`. No job was submitted and no
-allocation was held. Everything in `validation.md` is source-derived unless it
-says otherwise.
-
-Binaries from the `make all` above are present in the repository root and are
-`.gitignore`d. They were built with `mpicc` except `pga-mpi`, which was last
-rebuilt with `cc` — **do not mix them in one measurement**; run
-`make clean && make -B CC=cc all` before benchmarking.
-
-## Missing local prerequisites
-
-These block all correctness and performance work, in priority order:
-
-1. `tests/fixtures/yeast/` does not exist — no `yeast7.1gdb`, `yeast7.gix`,
-   `gold.tuples`, `gold.lcp.kmers.simple`, or `gold.paf`. `tests/` is
-   `.gitignore`d, so Git will never provide them.
-2. `yeast7.fa.gz`, the input `scripts/make_gold.sh` needs, is also absent.
-3. No FastGA tool installation: `~/FASTGA` does not exist, and neither does
-   `/global/u2/s/sdiwan/FASTGA` (hardcoded in `runtime_test_phase4b.sh`).
-   `FAtoGDB`, `GIXmake`, `GIXshow`, `FastGA` and `ALNtoPAF` are all off `PATH`.
-   `ALNtoPAF` is required at runtime by `pga-mpi-merge`.
-4. `notes/GIXmake_dump` is a tracked prebuilt binary; rebuilding it needs
-   `~/FASTGA` sources.
+- Wall time: 113.3 / 67.1 / 42.9 / 44.4 s at N = 1/2/4/8.
+- `extract_s`: 48.8 / 31.3 / 24.1 / **33.9** s. Extraction regresses at N=8
+  and is 76% of wall time there; every other stage scales.
 
 ## Open unknowns
 
-- Whether the historical yeast7 gold set is recoverable, or whether gold must
-  be regenerated from `yeast7.fa.gz` with a freshly built FastGA. The reference
-  figure of **43,126 alignments** is historical and has not been reproduced
-  here; regenerating gold with a different FastGA revision may not reproduce
-  it, which would be a provenance question rather than a bug.
-- Which FastGA revision produced the existing gold artifacts. Nothing in the
-  repository records it.
-- Whether `cc` (cray-mpich 9.1.0) or `mpicc` (MPICH 9.0.1) was used for the
-  historical timings. This changes the linked MPI library and so the numbers.
+- Is the cause of the extraction regression per-seed `Get_Contig_Piece` I/O,
+  Lustre contention, or work-split imbalance? O1-0 answers this.
+- Does the PAF depend on the pre-sort order of equal k-mers (`msd_sort` is not
+  stable)? O1-0 runs the shuffle experiment, which decides O1c's ordering.
+- HySortK has no licence file: reuse ideas only.
 
-## Follow-up defects found during inspection
+## Follow-up defects (recorded, not fixed)
 
-Recorded, not fixed. Roughly by severity.
+- **Fixed since 2026-09-10:** items 1 (send-displacement guard) and 2 (R-01
+  seam LCP).
+- **Still open:**
+  - `int8_t` world-size cap of 127.
+  - Two `ncontig²` maps.
+  - 128 MiB adapter index per rank.
+  - Non-fatal `ALNtoPAF` failure.
+  - Dead `cleanup` label and `read_file_all`.
+  - `O(ixlen)` `GoTo_Kmer_Index`.
+  - Script portability.
+  - Dead doc references.
+- **New:**
+  - `Read_GDB` returns 1 on error, but drivers test `< 0`, so the check can
+    never fire.
+  - The CSV reports only `MPI_MAX` per stage, so `total_s` overstates wall
+    time at N=8.
 
-1. **Unguarded cumulative send displacement** —
-   `src/pga-mpi-merge.c:174` (`redistribute_seeds`). Per-destination send sizes
-   and the cumulative *receive* total are checked against `INT_MAX`, but
-   `send_displs[r] = (int) cum` casts a running `int64` with no cumulative
-   *send* guard. Many destinations each under 2 GiB but summing above it will
-   overflow silently instead of aborting. Add the symmetric guard.
-2. **Wrong seam LCP past an empty rank** — `src/dsort.c:253`
-   (`verify_cross_rank_boundaries`). A rank with zero records sends
-   `my_last = 0x00...` to its successor. The successor's boundary comparison
-   then passes vacuously, and more importantly the LCP seam fixup at
-   `dsort.c:434` computes `simple_kmer_lcp_bases(0x00..., my_first)` against
-   that all-zero sentinel rather than against the true global predecessor,
-   which lives further back. The neighbour exchange only ever looks one rank
-   away. Yields a wrong LCP byte on one record per empty-rank seam; needs a
-   test with an empty intervening rank.
-3. **`world_size` capped at 127** — `src/contig_assignment.c:82`, `int8_t`
-   storage. Rejected cleanly with a message, so it is a limit rather than a
-   bug, but it caps a single job at 127 ranks. Note the `N*N` allocation at
-   line 75 happens *before* that check.
-4. **Quadratic contig-map storage, twice over** —
-   `contig_assignment.c:75` allocates `ncontig²` bytes for the upper triangle,
-   and `pga-mpi-merge.c:406` allocates a second `NCONTS²` symmetric copy. Both
-   are live simultaneously.
-5. **128 MiB per-rank adapter index** — `src/kmer_adapter.c:39`, `ibyte = 3`
-   gives `2^24` `int64` entries, allocated before the record table and merge
-   cache. Fixed cost regardless of slice size, so it dominates at high rank
-   counts.
-6. **Converter failure is not fatal** — `src/pga-mpi-merge.c:519`. `ALNtoPAF`
-   failure prints a message and `main` still returns 0, so a zero exit can
-   accompany missing or truncated PAF output.
-7. **Dead code in the driver** — `src/pga-mpi-merge.c:555` label `cleanup` is
-   defined but never jumped to (so the error paths that presumably should reach
-   it currently `MPI_Abort` instead, leaking nothing but bypassing cleanup),
-   and `read_file_all` at line 102 is unused. Both warn under `-Wall`.
-8. **`O(ixlen)` `GoTo_Kmer_Index`** — `src/kmer_adapter.c:143`, a 2^24 linear
-   scan. Harmless at `NTHREADS = 1`; becomes a real cost if merge threading is
-   ever raised, as the comment there notes.
-9. **Script portability** — `make_gold.sh` assumes `$HOME/DistributedPanGA` and
-   `~/FASTGA`; `runtime_test_phase4b.sh` hardcodes another user's FastGA path,
-   truncates the timing CSV and deletes `out.rank*.paf` on every run, and uses
-   fixed `/tmp` filenames. See `perlmutter.md`.
-10. **Dead documentation references** — scripts cite `implementation_plan.md`
-    and `src/phase4b_runtime_testing_plan.md`, neither of which exists.
+## O1-0 (done, job 59679320)
+
+Findings are in `o1-0-results.md`.
+- **Measured:**
+  - Work is balanced across ranks.
+  - Each extracted record costs one `lseek` syscall (`fseeko` in
+    `Get_Contig_Piece`).
+  - Per-rank system time stays at 19–30 s whatever N is.
+  - The N=8 `sort_s` rise is Allreduce wait.
+  - The shuffled pre-sort order gives an identical PAF (yeast7, N=1/4,
+    3 seeds).
+- **Hypotheses:** the `lseek`s dominate extraction (H1), and contention on
+  the shared file causes the N=8 regression (H2).
+
+## O1a (done, jobs 59686567 + 59691033, commit `f528988`)
+
+Pack k-mers from the scan window instead of one `Get_Contig_Piece` (`lseek`)
+per record. All gates green; 20 of 20 e2e runs match gold. Results are in
+`o1a-results.md`.
+
+| | wall N=1 | wall N=8 | extract N=1 | extract N=8 |
+|---|---|---|---|---|
+| before | 113.8 s | 39.1 s | 49.8 s | 28.6 s |
+| after | 65.4 s | 10.6 s | 1.5 s | 0.2 s |
+
+Extraction is now ~2% of wall time. At N=8, `align_s` is 63% and `merge_s`
+22%.
+
+New defect: job 59686567 hung in the external `ALNtoPAF` (GDB on `/tmp`,
+stderr discarded, no timeout), leaving node nid006480 in `CG`. This extends
+defect 6.
 
 ## Next action
 
-Smallest useful next step, in order:
-
-1. Obtain or rebuild the FastGA tools and put them on `PATH`; confirm with
-   `command -v ALNtoPAF`.
-2. Restore or regenerate `tests/fixtures/yeast/` and record the provenance
-   fields listed in `validation.md`.
-3. In one interactive allocation
-   (`salloc --account=m4341 --constraint=cpu --qos=interactive --nodes=1 --time=00:30:00`),
-   run `make verify-phase1` and `make verify-phase2` — serial, no `srun`, and
-   the cheapest possible confirmation that extraction and the local sort still
-   match gold. Then `verify-phase3-stage2` at `RANK_COUNTS="1 2"`, and
-   `verify-phase3-stage2-lcp` last because it runs `make clean` first.
-4. Only then take a baseline measurement, recording every field in
-   `research-plan.md`.
-
-Do not begin O1–O5 implementation before step 3 passes: without gold data
-there is no oracle to detect a regression.
+Decide with the user, because O1's measured target is now largely gone:
+- **O1b:** ≤ 1.5 s possible on yeast7. Deprioritised.
+- **O1c:** a memory case, not a runtime case, on yeast7.
+- **Alternatives:** merge O1-0 + O1a into `main` via PR; a larger dataset
+  where extraction and memory matter again; or the `ALNtoPAF` timeout/fatal
+  fix.

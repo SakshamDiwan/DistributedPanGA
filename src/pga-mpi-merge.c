@@ -319,8 +319,10 @@ int main(int argc, char *argv[])
     t_stage_start = MPI_Wtime();
     RecordBuffer local;
     record_buffer_init(&local, sizing);
+    extract_stats_reset();
     extract_to_records(gdb, world_size, my_rank, &local);
     t_extract = MPI_Wtime() - t_stage_start;
+    int64_t extracted_records = local.count;
 
     // ---- STAGE: sort ----------------------------------------------------
     t_stage_start = MPI_Wtime();
@@ -332,6 +334,28 @@ int main(int argc, char *argv[])
 
     fprintf(stderr, "[merge] rank %d: own slice has %lld records (sorted)\n",
             my_rank, (long long) recv.count);
+
+    // Per-rank extraction/stage-2 breakdown (O1-0). One line per rank,
+    // key=value, so scripts can grep '^\[o1-0\]'.
+    {
+        const ExtractStats *es = &g_extract_stats;
+        const Stage2Timing *st = &g_stage2_timing;
+        fprintf(stderr,
+                "[o1-0] rank %d: extract_s=%.6f contigs=%lld bases=%lld "
+                "records=%lld window_reads=%lld window_bases=%lld "
+                "pack_reads=%lld pack_bases=%lld window_packs=%lld "
+                "hist_s=%.6f pack_s=%.6f exchange_s=%.6f shuffle_s=%.6f "
+                "local_sort_s=%.6f verify_s=%.6f sort_stage_s=%.6f "
+                "slice_records=%lld\n",
+                my_rank, t_extract, (long long) es->contigs,
+                (long long) es->bases, (long long) extracted_records,
+                (long long) es->window_reads, (long long) es->window_bases,
+                (long long) es->pack_reads, (long long) es->pack_bases,
+                (long long) es->window_packs,
+                st->hist_s, st->pack_s, st->exchange_s, st->shuffle_s,
+                st->local_sort_s, st->verify_s, t_sort,
+                (long long) recv.count);
+    }
 
     // ---- STAGE: merge ---------------------------------------------------
     // Covers: build_kmer_adapter + extern setup + IOBuffer alloc +

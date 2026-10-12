@@ -39,4 +39,22 @@ void record_buffer_free(RecordBuffer *b);
 
 void extract_to_records(GDB *gdb, int num_workers, int worker_id, RecordBuffer *buf);
 
+// --- Instrumentation (O1-0) --------------------------------------------------
+// Cumulative counters for this process; extraction is single-threaded, so a
+// plain global is safe. Reset with extract_stats_reset().
+
+typedef struct {
+    int64_t contigs;        // contigs scanned
+    int64_t bases;          // bases in scanned contigs
+    int64_t window_reads;   // Get_Contig_Piece calls by the scan windows
+    int64_t window_bases;   // bases requested by those calls
+    int64_t pack_reads;     // Get_Contig_Piece calls by pack_forward/rc_kmer
+                            // (since O1a: only window-edge fallbacks)
+    int64_t pack_bases;     // bases requested by those calls
+    int64_t window_packs;   // k-mers packed straight from the scan window
+} ExtractStats;
+
+extern ExtractStats g_extract_stats;
+void extract_stats_reset(void);
+
 #endif

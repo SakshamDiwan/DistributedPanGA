@@ -339,6 +339,38 @@ int verify_cross_rank_boundaries(const RecordBuffer *recv,
 
 // Stage 2 — full pipeline.
 
+Stage2Timing g_stage2_timing;
+
+static uint64_t splitmix64(uint64_t *state)
+{
+    uint64_t z = (*state += 0x9E3779B97F4A7C15ULL);
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    return z ^ (z >> 31);
+}
+
+// Fisher-Yates over whole records. Deterministic for a given (seed, rank).
+static void shuffle_records(RecordBuffer *b, uint64_t seed, int rank)
+{
+    int rsize = b->sizing.record_size;
+    uint8_t tmp[64];
+    uint64_t state = seed ^ ((uint64_t) rank * 0xD1B54A32D192ED03ULL);
+    if (rsize > (int) sizeof(tmp))
+    {
+        fprintf(stderr, "shuffle_records: record size %d too large\n", rsize);
+        exit(1);
+    }
+    for (int64_t i = b->count - 1; i > 0; i--)
+    {
+        int64_t j = (int64_t) (splitmix64(&state) % (uint64_t) (i + 1));
+        if (j == i) continue;
+        uint8_t *a = b->data + i * rsize, *c = b->data + j * rsize;
+        memcpy(tmp, a, rsize);
+        memcpy(a, c, rsize);
+        memcpy(c, tmp, rsize);
+    }
+}
+
 void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
 {
     int my_rank, world_size;
@@ -346,6 +378,9 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
     MPI_Comm_size(comm, &world_size);
 
     int rsize = local->sizing.record_size;
+    Stage2Timing *tm = &g_stage2_timing;
+    memset(tm, 0, sizeof(*tm));
+    double t0 = MPI_Wtime(), t1;
 
     int64_t local_counts[NUM_BUCK];
     bucket_local_counts(local, local_counts);
@@ -363,6 +398,7 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
         MPI_Abort(comm, 1);
     }
     compute_destination_map(global_counts, world_size, ksplit, select);
+    t1 = MPI_Wtime(); tm->hist_s = t1 - t0; t0 = t1;
 
     int *send_counts = (int *) malloc(world_size * sizeof(int));
     int *send_displs = (int *) malloc(world_size * sizeof(int));
@@ -377,6 +413,7 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
     uint8_t *send_buf = NULL;
     organize_send_buffer(local, select, world_size,
                          &send_buf, send_counts, send_displs);
+    t1 = MPI_Wtime(); tm->pack_s = t1 - t0; t0 = t1;
 
     MPI_Alltoall(send_counts, 1, MPI_INT,
                  recv_counts, 1, MPI_INT, comm);
@@ -417,6 +454,19 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
     free(recv_displs);
     free(ksplit);
     free(select);
+    t1 = MPI_Wtime(); tm->exchange_s = t1 - t0; t0 = t1;
+
+    const char *shuffle_env = getenv("PGA_PRESORT_SHUFFLE");
+    if (shuffle_env != NULL && shuffle_env[0] != '\0')
+    {
+        uint64_t seed = strtoull(shuffle_env, NULL, 10);
+        if (my_rank == 0)
+            fprintf(stderr, "run_stage2: PGA_PRESORT_SHUFFLE=%llu -- permuting "
+                            "received records before sort (experiment)\n",
+                    (unsigned long long) seed);
+        shuffle_records(recv, seed, my_rank);
+        t1 = MPI_Wtime(); tm->shuffle_s = t1 - t0; t0 = t1;
+    }
 
     sort_records(recv);
 
@@ -424,6 +474,7 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
     // Overwrite msd_sort's mixed-formula byte 0 with our base-level LCP.
     recalc_all_lcps(recv);
 #endif
+    t1 = MPI_Wtime(); tm->local_sort_s = t1 - t0; t0 = t1;
     int64_t first_bad = -1;
     int64_t bad = verify_per_rank_sorted(recv, &first_bad);
     if (bad != 0)
@@ -473,4 +524,5 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
         recv->data[0] = same ? 0 : 1;
 #endif
     }
+    tm->verify_s = MPI_Wtime() - t0;
 }

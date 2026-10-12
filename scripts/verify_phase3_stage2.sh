@@ -43,17 +43,18 @@ overall_status=0
 
 # Tier 2 walker: read concatenated tuple file, assert each line's k-mer (4th
 # whitespace field, 20 hex chars) is >= the previous line's k-mer. Awk wins
-# on memory because it streams.
+# on memory because it streams. Compare as strings: awk treats an all-digit
+# hex k-mer like "...83e9" as the number 8.3e10, which breaks the ordering.
 tier2_check() {
     local file="$1"
-    awk '
-        NR == 1 { prev = $4; next }
+    LC_ALL=C awk '
+        NR == 1 { prev = $4 ""; next }
         {
-            if ($4 < prev) {
+            if (($4 "") < prev) {
                 printf("Tier 2 FAIL at line %d: kmer %s < prev %s\n", NR, $4, prev) > "/dev/stderr"
                 exit 1
             }
-            prev = $4
+            prev = $4 ""
         }
     ' "$file"
 }
