@@ -26,6 +26,7 @@ Current results live in `tests/RESULTS.md`. Summary: **42,471 checks,
 | Adapter | K-01…K-05 | `test_adapter` | done, passing |
 | Real MPI | M-01…M-06 | `test_stage2` | written; needs an allocation (world=1 smoke-tested) |
 | Regression | R-02 | `test_exchange_plan` | **fixed**, markers removed |
+| Regression | R-05 | `test_run_cmd` | **fixed**, passing |
 | Regressions | R-03, R-04 | — | done, **xfail** (4 + 1 assertions) |
 | Regression | R-01 | `test_stage2` | written; needs an allocation |
 | End-to-end | Z-01, Z-02 | — | blocked: no fixtures, no FastGA tools |
@@ -302,6 +303,35 @@ the third wrapped negative, so MPI would have read outside the send buffer. The
 **Fixed** by the cumulative guard in `plan_byte_exchange`. The marker was
 removed only after XPASS flagged it, which confirmed the test had real power.
 
+### R-05 · External converter hang, discarded stderr, failure ignored — **FIXED**
+
+**Was:** `pga-mpi-merge` and `pga-merge` ran `ALNtoPAF … 2>/dev/null` through
+`system()`. There was no time limit, the converter's stderr was discarded, and
+a failure was printed but `main` still returned 0. Observed in job 59686567:
+the converter hung for over 2 h after every pipeline stage had finished,
+leaving a 0-byte PAF and no log.
+
+**Fixed** by `run_with_timeout` (`src/run_cmd.c`):
+- It forks and execs `ALNtoPAF` from `PATH`, with no shell, in its own process
+  group.
+- stdout goes to the PAF and stderr to `out.rank<r>.alntopaf.err`.
+- At `PGA_ALNTOPAF_TIMEOUT` (default 600 s) the group gets SIGTERM, then
+  SIGKILL. If it is still alive after that, the driver stops waiting
+  (`RUN_STUCK`).
+- Any failure renames the PAF to `.paf.partial`. The ranks `MPI_Allreduce`
+  the failure flag and all exit 4.
+
+**Test** (`test_run_cmd`, driven by `sh -c` commands, not `ALNtoPAF`): success
+with both streams captured, non-zero exit, command not found (127), death by
+signal, timeout, a child that ignores SIGTERM (needs the SIGKILL escalation), a
+backgrounded grandchild (process-group kill), an unwritable output path, and
+the env parsing.
+
+**Not covered:** `RUN_STUCK`, which needs a process in uninterruptible I/O. A
+process in that state cannot be killed by anyone, so the node may still need
+Slurm cleanup. The fix guarantees only that our job reports the failure and
+exits.
+
 ### R-03 · Position field representability — **confirmed empirically**
 
 RC records store `j + TMER` with `j` up to `len - TMER` (`src/extract.c:189`),
@@ -382,9 +412,9 @@ vacuously. Keep yeast7 as the slow authoritative check.
   produced independently by FastGA — that is the real assertion; cross-world-size
   agreement alone is only consistency evidence. An individual rank file **may
   legitimately be empty** (a rank can own pairs yielding no alignment), so
-  assert on the aggregate being non-empty, not on each file. A zero exit status
-  does not mean PAF was produced: `ALNtoPAF` failure is printed and ignored
-  (`src/pga-mpi-merge.c:519`). Do not cite the historical 43,126-alignment
+  assert on the aggregate being non-empty, not on each file. Since R-05 an
+  `ALNtoPAF` failure exits 4, but a zero exit is still not proof that the PAF
+  is right. Do not cite the historical 43,126-alignment
   figure as reproduced — it belongs to a specific input, parameters and FastGA
   revision.
 

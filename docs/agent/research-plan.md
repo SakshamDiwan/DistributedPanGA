@@ -122,8 +122,9 @@ Opportunities and hazards:
 
 - The file round trips are inside the `merge` timing bucket, so the CSV already
   attributes them; measure before assuming they dominate.
-- Eliminating the external converter also removes the failure mode where
-  `ALNtoPAF` is missing from `PATH` or fails and `main` still returns 0.
+- Eliminating the external converter would also remove the dependency on
+  `ALNtoPAF` being on `PATH`. Its failures are already fatal (exit 4) and time
+  limited (R-05).
 - `recompute_buck` exists only because redistribution invalidates the counts
   the merge wrote; an in-memory exchange could maintain them directly.
 - Scratch is node-local `/tmp` with `TMPDIR` ignored, so any redesign must not

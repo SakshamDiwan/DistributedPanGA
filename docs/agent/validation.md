@@ -187,5 +187,6 @@ invalidates every gold artifact.
 - The historical yeast7 figure of **43,126 alignments** belongs to a specific
   input, parameter set and reference. It has **not** been reproduced in this
   checkout and must not be cited as if it had.
-- A zero exit status from `pga-mpi-merge` does not imply PAF output — check the
+- `pga-mpi-merge` exits 4 when `ALNtoPAF` fails or times out on any rank
+  (R-05). A zero exit is necessary but not sufficient: still check the
   files.

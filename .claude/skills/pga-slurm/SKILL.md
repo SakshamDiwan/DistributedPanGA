@@ -24,8 +24,9 @@ bounded example jobs: `docs/agent/perlmutter.md`. Build first with
    `$SCRATCH` and pass an **absolute** GDB stem. Internal scratch is a
    hardcoded per-rank `/tmp` directory and `TMPDIR` will not relocate it.
 4. Verify `PATH` before launching: `command -v ALNtoPAF || exit 1`. The binary
-   shells out to a bare `ALNtoPAF`, and a conversion failure is only printed —
-   `main` still returns 0.
+   runs a bare `ALNtoPAF` from `PATH`, under a time limit
+   (`PGA_ALNTOPAF_TIMEOUT`, default 600 s). Exit 4 means the conversion failed
+   on some rank; see `out.rank<r>.alntopaf.err`.
 5. Launch with `srun` inside the allocation. Do **not** wrap a script that
    itself calls `srun` (the `verify_*` and `runtime_test_phase4b.sh` scripts
    do); run those as plain shell commands.

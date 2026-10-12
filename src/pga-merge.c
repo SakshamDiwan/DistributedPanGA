@@ -18,6 +18,7 @@
 #include "alncode.h"
 #include "gene_core.h"
 #include "fastga_pipeline.h"
+#include "run_cmd.h"
 
 // constants.h defines KMER as the literal 40, but FastGA's pipeline uses
 // KMER as a runtime int (set from T1.kmer). Drop the macro so the extern
@@ -227,11 +228,27 @@ int main(int argc, char *argv[])
     char aln_path[1024];
     snprintf(aln_path, sizeof(aln_path), "%s/%s.1aln", SORT_PATH, ALGN_UNIQ);
 
-    char cmd[2048];
-    snprintf(cmd, sizeof(cmd), "ALNtoPAF %s > out.paf 2>/dev/null", aln_path);
-    fprintf(stderr, "Running: %s\n", cmd);
-    int ret = system(cmd);
-    if (ret != 0) fprintf(stderr, "ALNtoPAF failed (ret=%d)\n", ret);
+    // Convert with a time limit; keep ALNtoPAF's stderr; failure is fatal.
+    double conv_limit = alntopaf_timeout_from_env(600.0);
+    char *conv_argv[] = { "ALNtoPAF", aln_path, NULL };
+    fprintf(stderr, "Running: ALNtoPAF %s > out.paf 2> out.alntopaf.err (limit %.0f s)\n",
+            aln_path, conv_limit);
+    RunResult conv = run_with_timeout(conv_argv, "out.paf", "out.alntopaf.err",
+                                      conv_limit, 10.0);
+    int conv_failed = (conv.status != RUN_OK);
+    if (conv_failed)
+    {
+        char why[256];
+        run_result_describe(&conv, conv_limit, why, sizeof(why));
+        fprintf(stderr, "ALNtoPAF failed: %s; stderr in out.alntopaf.err\n", why);
+        rename("out.paf", "out.paf.partial");
+    }
+    else
+    {
+        struct stat st;
+        if (stat("out.alntopaf.err", &st) == 0 && st.st_size == 0)
+            unlink("out.alntopaf.err");
+    }
 
     free_kmer_adapter(&T1, &P1);
     record_buffer_free(&buf);
@@ -254,6 +271,11 @@ int main(int argc, char *argv[])
     free(N_Units);
     free(C_Units);
 
+    if (conv_failed)
+    {
+        fprintf(stderr, "FAILED: ALNtoPAF failed; PAF output is incomplete\n");
+        return 4;
+    }
     fprintf(stderr, "Done. Output: out.paf\n");
     return 0;
 }

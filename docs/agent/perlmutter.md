@@ -106,9 +106,13 @@ export PATH=/path/to/FASTGA:$PATH
 srun ... ./pga-mpi-merge "$GDB_STEM"
 ```
 
-`ALNtoPAF` failure is only *printed*; `main` still returns 0. A successful exit
-therefore does not mean PAF was produced — always check that
-`out.rank*.paf` exist and are non-empty.
+`ALNtoPAF` runs with a time limit (`PGA_ALNTOPAF_TIMEOUT`, seconds, default
+600; 0 = none). If it fails or times out on any rank, `pga-mpi-merge` exits 4,
+renames that rank's output to `out.rank<r>.paf.partial` and keeps the
+converter's stderr in `out.rank<r>.alntopaf.err`. A converter stuck in
+uninterruptible I/O cannot be killed: the driver stops waiting and exits, but
+the node may still need Slurm cleanup. Still check that `out.rank*.paf` exist
+and match the reference.
 
 In this checkout `ALNtoPAF` is **not** on `PATH` and neither `~/FASTGA` nor
 `/global/u2/s/sdiwan/FASTGA` exists **[executed]**, so no end-to-end run is
