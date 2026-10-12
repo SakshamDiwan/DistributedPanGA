@@ -1,6 +1,6 @@
 # State / handoff
 
-Last updated: 2026-10-11 (after O1-0).
+Last updated: 2026-10-11 (after O1a).
 
 ## Current objective
 
@@ -77,9 +77,29 @@ Findings are in `o1-0-results.md`.
 - **Hypotheses:** the `lseek`s dominate extraction (H1), and contention on
   the shared file causes the N=8 regression (H2).
 
+## O1a (done, jobs 59686567 + 59691033, commit `f528988`)
+
+Pack k-mers from the scan window instead of one `Get_Contig_Piece` (`lseek`)
+per record. All gates green; 20 of 20 e2e runs match gold. Results are in
+`o1a-results.md`.
+
+| | wall N=1 | wall N=8 | extract N=1 | extract N=8 |
+|---|---|---|---|---|
+| before | 113.8 s | 39.1 s | 49.8 s | 28.6 s |
+| after | 65.4 s | 10.6 s | 1.5 s | 0.2 s |
+
+Extraction is now ~2% of wall time. At N=8, `align_s` is 63% and `merge_s`
+22%.
+
+New defect: job 59686567 hung in the external `ALNtoPAF` (GDB on `/tmp`,
+stderr discarded, no timeout), leaving node nid006480 in `CG`. This extends
+defect 6.
+
 ## Next action
 
-Implement **O1a** (pack k-mers from the scan window) on a branch off
-`o1/0-instrumentation`. Its measurement job must include the H2 control:
-baseline and O1a binaries, with the GDB on Lustre and on node-local `/tmp`,
-at N=1 and N=8. Gates as in `o1-design.md` §5.
+Decide with the user, because O1's measured target is now largely gone:
+- **O1b:** ≤ 1.5 s possible on yeast7. Deprioritised.
+- **O1c:** a memory case, not a runtime case, on yeast7.
+- **Alternatives:** merge O1-0 + O1a into `main` via PR; a larger dataset
+  where extraction and memory matter again; or the `ALNtoPAF` timeout/fatal
+  fix.
