@@ -163,10 +163,16 @@ static double now_s(void)
     return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
 
+// Per-rank scratch directory for seed and alignment files. Defaults to /tmp,
+// which is memory-backed (tmpfs) on Perlmutter compute nodes; set
+// PGA_SCRATCH_DIR (e.g. a $SCRATCH subdirectory) when the seed files would
+// not fit in node memory alongside the process.
 static char *make_temp_dir_for_rank(int rank)
 {
-    char tmpl[64];
-    snprintf(tmpl, sizeof(tmpl), "/tmp/pga-mpi-merge-r%d-XXXXXX", rank);
+    char tmpl[1024];
+    const char *base = getenv("PGA_SCRATCH_DIR");
+    if (base == NULL || base[0] == '\0') base = "/tmp";
+    snprintf(tmpl, sizeof(tmpl), "%s/pga-mpi-merge-r%d-XXXXXX", base, rank);
     char *dir = mkdtemp(tmpl);
     if (dir == NULL) { perror("mkdtemp"); MPI_Abort(MPI_COMM_WORLD, 1); }
     return strdup(dir);
