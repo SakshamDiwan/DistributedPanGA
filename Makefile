@@ -28,7 +28,7 @@ PHASE3_SRCS        = src/pga-mpi.c        $(CORE_SRCS) src/sort.c src/dsort.c
 # Phase 4 single-rank prototype: extract + sort + adapter + FastGA merge/align/PAF.
 # No MPI — does not pull in dsort.c.
 PHASE4_SRCS        = src/pga-merge.c $(CORE_SRCS) src/sort.c \
-                     src/kmer_adapter.c src/fastga_pipeline.c
+                     src/kmer_adapter.c src/fastga_pipeline.c src/run_cmd.c
 
 all: pga-extract pga-sort pga-mpi-stage1 pga-mpi pga-merge pga-mpi-merge
 
@@ -56,7 +56,7 @@ pga-merge: $(PHASE4_SRCS) $(LIB_SRCS)
 # (dsort.c) and pga-merge's adapter + lifted FastGA pipeline.
 PHASE4B_SRCS = src/pga-mpi-merge.c $(CORE_SRCS) src/sort.c src/dsort.c \
                src/kmer_adapter.c src/fastga_pipeline.c src/contig_assignment.c \
-               src/seed_exchange.c
+               src/seed_exchange.c src/run_cmd.c
 pga-mpi-merge: $(PHASE4B_SRCS) $(LIB_SRCS)
 	$(CC) $(CFLAGS) -o pga-mpi-merge $(PHASE4B_SRCS) $(LIB_SRCS) $(LIBS)
 
@@ -122,7 +122,7 @@ test-record-split:
 	tests/bin/test_record_split
 
 test: test-record-split test-extract test-extract-window test-lcp-sort \
-      test-dsort test-assign test-adapter test-exchange-plan
+      test-dsort test-assign test-adapter test-exchange-plan test-run-cmd
 
 # Slow paths (production allocation growth) plus the sanitizers.
 test-asan:
@@ -171,6 +171,12 @@ test-exchange-plan:
 	gcc $(TEST_CFLAGS) -o tests/bin/test_exchange_plan tests/unit/test_exchange_plan.c \
 	    tests/support/check.c src/seed_exchange.c $(LIBS)
 	tests/bin/test_exchange_plan
+
+test-run-cmd:
+	@mkdir -p tests/bin
+	gcc $(TEST_CFLAGS) -o tests/bin/test_run_cmd tests/unit/test_run_cmd.c \
+	    tests/support/check.c src/run_cmd.c $(LIBS)
+	tests/bin/test_run_cmd
 
 test-mpi:
 	@mkdir -p tests/bin

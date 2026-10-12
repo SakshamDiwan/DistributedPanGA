@@ -38,8 +38,11 @@ pairs. Final executable: `pga-mpi-merge`. Inspected source commit: `ce64406`.
 - Adapter structs mirror FastK/FastGA layouts and are **cast** to those
   interfaces — field order is load-bearing. Cumulative index uses `prefix <= p`
   semantics; clones share storage and only the wrapper is freed.
-- A zero exit status does **not** mean PAF output was produced: `ALNtoPAF`
-  failure is printed and then ignored.
+- `ALNtoPAF` runs under a time limit (`PGA_ALNTOPAF_TIMEOUT`, default 600 s,
+  0 = none) via `run_with_timeout` (`src/run_cmd.c`). Its stderr goes to
+  `out.rank<r>.alntopaf.err`. A failure or timeout on any rank makes
+  `pga-mpi-merge` exit 4 and leaves `out.rank<r>.paf.partial`. Still compare
+  the PAF itself: exit 0 is necessary, not sufficient.
 
 ## Routing
 

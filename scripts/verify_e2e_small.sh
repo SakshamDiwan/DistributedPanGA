@@ -10,8 +10,9 @@
 #     once), so the comparison sorts but never deduplicates.
 #   - An individual out.rank<N>.paf may legitimately be EMPTY: a rank can own
 #     contig pairs that yield no alignment. Only the aggregate must match.
-#   - pga-mpi-merge returns 0 even when ALNtoPAF fails, so a zero exit is not
-#     evidence of success; the aggregate is checked for non-emptiness too.
+#   - pga-mpi-merge exits 4 if ALNtoPAF fails or times out on any rank
+#     (PGA_ALNTOPAF_TIMEOUT, default 600 s). A non-zero exit fails the check;
+#     a zero exit alone is still not evidence, so the aggregate is compared too.
 #
 # REQUIRES an active Slurm allocation. Run as a plain command, never under srun.
 #
@@ -63,7 +64,10 @@ for N in $RANK_COUNTS; do
     n=$(wc -l < "$WORK/got.$N.paf")
     echo "  exit=$rc  rank files=$nfiles (empty ones are legitimate)  aggregate=$n alignments"
 
-    if [ "$n" -eq 0 ]; then
+    if [ "$rc" -ne 0 ]; then
+        echo "  FAIL: pga-mpi-merge exited $rc (4 = ALNtoPAF failed; see out.rank*.alntopaf.err)" >&2
+        status=1
+    elif [ "$n" -eq 0 ]; then
         echo "  FAIL: aggregate PAF is empty (exit status alone is not evidence)" >&2
         status=1
     elif cmp -s "$WORK/got.$N.paf" "$WORK/gold.sorted.paf"; then

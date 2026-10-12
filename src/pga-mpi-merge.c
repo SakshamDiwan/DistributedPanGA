@@ -32,6 +32,7 @@
 #include "record.h"
 #include "sort.h"
 #include "dsort.h"
+#include "run_cmd.h"
 #include "constants.h"
 #include "GDB.h"
 #include "kmer_adapter.h"
@@ -531,14 +532,33 @@ int main(int argc, char *argv[])
     fprintf(stderr, "[merge] rank %d: starting pair_sort_search\n", my_rank);
     pair_sort_search(gdb, gdb);
 
-    char aln_path[1024];
+    // Convert with a time limit; keep ALNtoPAF's stderr. A failure on any
+    // rank makes the run exit non-zero (see the end of main).
+    char aln_path[1024], paf_path[64], err_path[64];
     snprintf(aln_path, sizeof(aln_path), "%s/%s.1aln", SORT_PATH, ALGN_UNIQ);
-    char cmd[2048];
-    snprintf(cmd, sizeof(cmd),
-             "ALNtoPAF %s > out.rank%d.paf 2>/dev/null", aln_path, my_rank);
-    fprintf(stderr, "[merge] rank %d: %s\n", my_rank, cmd);
-    int ret = system(cmd);
-    if (ret != 0) fprintf(stderr, "rank %d: ALNtoPAF failed (ret=%d)\n", my_rank, ret);
+    snprintf(paf_path, sizeof(paf_path), "out.rank%d.paf", my_rank);
+    snprintf(err_path, sizeof(err_path), "out.rank%d.alntopaf.err", my_rank);
+    double conv_limit = alntopaf_timeout_from_env(600.0);
+    char *conv_argv[] = { "ALNtoPAF", aln_path, NULL };
+    fprintf(stderr, "[merge] rank %d: ALNtoPAF %s > %s 2> %s (limit %.0f s)\n",
+            my_rank, aln_path, paf_path, err_path, conv_limit);
+    RunResult conv = run_with_timeout(conv_argv, paf_path, err_path, conv_limit, 10.0);
+    int conv_failed = (conv.status != RUN_OK);
+    if (conv_failed)
+    {
+        char why[256], partial[80];
+        run_result_describe(&conv, conv_limit, why, sizeof(why));
+        fprintf(stderr, "rank %d: ALNtoPAF failed: %s; stderr in %s\n",
+                my_rank, why, err_path);
+        snprintf(partial, sizeof(partial), "%s.partial", paf_path);
+        rename(paf_path, partial);
+    }
+    else
+    {
+        struct stat st;
+        if (stat(err_path, &st) == 0 && st.st_size == 0)
+            unlink(err_path);
+    }
     t_alignments = MPI_Wtime() - t_stage_start;
 
     // Reduce stage timings to max-across-ranks; print + CSV on rank 0.
@@ -597,8 +617,18 @@ cleanup:
     free(N_Units);
     free(C_Units);
 
+    int any_conv_failed = 0;
+    MPI_Allreduce(&conv_failed, &any_conv_failed, 1, MPI_INT, MPI_MAX,
+                  MPI_COMM_WORLD);
     MPI_Barrier(MPI_COMM_WORLD);
-    if (my_rank == ROOT) fprintf(stderr, "[merge] done\n");
+    if (my_rank == ROOT)
+    {
+        if (any_conv_failed)
+            fprintf(stderr, "[merge] FAILED: ALNtoPAF failed on at least one "
+                            "rank; PAF output is incomplete\n");
+        else
+            fprintf(stderr, "[merge] done\n");
+    }
     MPI_Finalize();
-    return 0;
+    return any_conv_failed ? 4 : 0;
 }
