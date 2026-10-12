@@ -22,6 +22,7 @@
 #include <strings.h>
 #include <stdint.h>
 #include <limits.h>
+#include <time.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -90,6 +91,77 @@ IOBuffer *C_Units = NULL;
 int8_t *RankForPair = NULL;
 int     NUNITS      = 1;
 
+// --- Instrumentation (PR 1) ----------------------------------------------
+//
+// Memory: each stage's peak RSS comes from VmHWM in /proc/self/status. The
+// high-water mark is reset at every stage boundary by writing "5" to
+// /proc/self/clear_refs (Linux >= 4.0); if that fails the peaks are
+// cumulative and reset_ok is 0 in the output.
+//
+// The reset also resets what getrusage / wait4 report as ru_maxrss, so
+// /usr/bin/time -v and sacct MaxRSS then show only the last stage. Use
+// overall_peak_kb from the [pr1-mem] line instead, or set
+// PGA_MEM_STAGE_RESET=0 to keep the external numbers valid (per-stage peaks
+// are then cumulative).
+
+enum { MEM_EXTRACT, MEM_STAGE2, MEM_ADAPTER, MEM_MERGE, MEM_REDIST,
+       MEM_ALIGN, MEM_CONVERT, MEM_NSTAGES };
+static const char *Mem_Stage_Name[MEM_NSTAGES] =
+  { "extract", "stage2", "adapter", "merge", "redist", "align", "convert" };
+static long Mem_Peak_KB[MEM_NSTAGES];
+static long Mem_End_KB[MEM_NSTAGES];
+static int  Mem_Reset_OK = 1;
+
+static void read_rss_kb(long *rss_kb, long *hwm_kb)
+{
+    char line[256];
+    FILE *f = fopen("/proc/self/status", "r");
+    *rss_kb = *hwm_kb = -1;
+    if (f == NULL) return;
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "VmRSS:", 6) == 0) *rss_kb = atol(line + 6);
+        else if (strncmp(line, "VmHWM:", 6) == 0) *hwm_kb = atol(line + 6);
+    }
+    fclose(f);
+}
+
+static void reset_hwm(void)
+{
+    const char *e = getenv("PGA_MEM_STAGE_RESET");
+    if (e != NULL && strcmp(e, "0") == 0) { Mem_Reset_OK = 0; return; }
+    int fd = open("/proc/self/clear_refs", O_WRONLY);
+    if (fd < 0 || write(fd, "5", 1) != 1) Mem_Reset_OK = 0;
+    if (fd >= 0) close(fd);
+}
+
+// Record the stage that just ended, then start the next one.
+static void mem_stage_end(int stage)
+{
+    long rss, hwm;
+    read_rss_kb(&rss, &hwm);
+    Mem_Peak_KB[stage] = hwm;
+    Mem_End_KB[stage]  = rss;
+    reset_hwm();
+}
+
+// Per-task alignment records: one line per align_contigs call.
+static FILE *Pair_Task_File = NULL;
+
+static void write_pair_task(int tid, int comp, int anchor, int partner,
+                            int64 nseeds, double seconds, int64 nhits, int64 nlass)
+{
+    fprintf(Pair_Task_File, "%d\t%c\t%d\t%d\t%lld\t%.6f\t%lld\t%lld\n",
+            tid, comp ? 'C' : 'N', anchor, partner, (long long) nseeds,
+            seconds, (long long) nhits, (long long) nlass);
+}
+
+static double now_s(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec * 1e-9;
+}
+
 static char *make_temp_dir_for_rank(int rank)
 {
     char tmpl[64];
@@ -127,13 +199,15 @@ static int64 read_file_all(int fd, uint8 **out_buf)
 //   sort_path   — scratch dir
 //   pair_name   — scratch file basename
 //   out_path    — caller-provided buffer; receives path of fresh local file
+//   sent_out    — receives total bytes this rank sent (incl. to itself)
 // Returns:
 //   total bytes received (also = size of file at *out_path).
 //
 // Side effect: closes/replaces units[0].file with the combined incoming file.
 static int64 redistribute_seeds(IOBuffer *units, int world_size, char tag,
                                 const char *sort_path, const char *pair_name,
-                                char *out_path, size_t out_path_len)
+                                char *out_path, size_t out_path_len,
+                                int64 *sent_out)
 {
     int my_rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
@@ -149,6 +223,7 @@ static int64 redistribute_seeds(IOBuffer *units, int world_size, char tag,
         }
         snprintf(out_path, out_path_len, "%s/%s.0.%c",
                  sort_path, pair_name, tag);
+        *sent_out = size;
         return size;
     }
 
@@ -159,6 +234,7 @@ static int64 redistribute_seeds(IOBuffer *units, int world_size, char tag,
         if (send_sizes64[r] < 0) { perror("lseek"); MPI_Abort(MPI_COMM_WORLD, 1); }
         send_total64 += send_sizes64[r];
     }
+    *sent_out = send_total64;
     uint8 *send_buf = malloc(send_total64 > 0 ? (size_t) send_total64 : 1);
     if (send_buf == NULL) { perror("malloc send_buf"); MPI_Abort(MPI_COMM_WORLD, 1); }
 
@@ -317,6 +393,7 @@ int main(int argc, char *argv[])
     double t_stage_start;
 
     // ---- STAGE: extract -------------------------------------------------
+    reset_hwm();
     t_stage_start = MPI_Wtime();
     RecordBuffer local;
     record_buffer_init(&local, sizing);
@@ -329,9 +406,11 @@ int main(int argc, char *argv[])
     t_stage_start = MPI_Wtime();
     RecordBuffer recv;
     memset(&recv, 0, sizeof(recv));
+    mem_stage_end(MEM_EXTRACT);
     run_stage2(&local, &recv, MPI_COMM_WORLD);
     record_buffer_free(&local);
     t_sort = MPI_Wtime() - t_stage_start;
+    mem_stage_end(MEM_STAGE2);
 
     fprintf(stderr, "[merge] rank %d: own slice has %lld records (sorted)\n",
             my_rank, (long long) recv.count);
@@ -373,6 +452,15 @@ int main(int argc, char *argv[])
     }
     fprintf(stderr, "[merge] rank %d: adapter %lld entries, pbyte=%d\n",
             my_rank, (long long) T1.nels, T1.pbyte);
+    double t_adapter = MPI_Wtime() - t_stage_start;
+    int64 slice_records = recv.count;
+    int64 record_bytes  = recv.count * (int64) recv.sizing.record_size;
+    int64 adapter_bytes = T1.nels * (int64) T1.pbyte + (int64) T1.ixlen * (int64) sizeof(int64);
+
+    // The adapter holds its own copy of every record (build_kmer_adapter
+    // copies, it does not alias), and nothing after this point reads recv.
+    record_buffer_free(&recv);
+    mem_stage_end(MEM_ADAPTER);
 
     // Set FastGA externs (mirrors pga-merge.c).
     KMER   = T1.kmer;
@@ -497,7 +585,14 @@ int main(int argc, char *argv[])
     // self_adaptamer_merge expects gdb->seqtot but we want the per-rank
     // record count proxy here for the verbose output ratio. Pass seqtot
     // since it's only used for a logging division.
+    double t0 = now_s();
     self_adaptamer_merge((Kmer_Stream *)&T1, (Post_List *)&P1, gdb->seqtot);
+    double t_merge_core = now_s() - t0;
+
+    // Seeds are now in the N/C unit files; pair_sort_search and everything
+    // after it read only those files and the GDB, never the k-mer adapter.
+    free_kmer_adapter(&T1, &P1);
+    mem_stage_end(MEM_MERGE);
 
     // After the two Alltoallvs each rank's N_Units[0].file / C_Units[0].file
     // holds all seed pairs destined for it (from all source ranks).
@@ -505,12 +600,17 @@ int main(int argc, char *argv[])
         fprintf(stderr, "[merge] redistributing seeds via MPI_Alltoallv...\n");
 
     char n_combined[1024], c_combined[1024];
+    int64 n_sent, c_sent;
+    t0 = now_s();
     int64 n_recv = redistribute_seeds(N_Units, world_size, 'N',
                                       SORT_PATH, PAIR_NAME,
-                                      n_combined, sizeof(n_combined));
+                                      n_combined, sizeof(n_combined), &n_sent);
+    double t_redist_n = now_s() - t0;
+    t0 = now_s();
     int64 c_recv = redistribute_seeds(C_Units, world_size, 'C',
                                       SORT_PATH, PAIR_NAME,
-                                      c_combined, sizeof(c_combined));
+                                      c_combined, sizeof(c_combined), &c_sent);
+    double t_redist_c = now_s() - t0;
     fprintf(stderr, "[merge] rank %d: received N=%lld C=%lld bytes\n",
             my_rank, (long long) n_recv, (long long) c_recv);
 
@@ -519,9 +619,12 @@ int main(int argc, char *argv[])
     NUNITS = 1;
 
     // Recompute per-A-contig seed counts in the received buffers.
+    t0 = now_s();
     recompute_buck(&N_Units[0], IBYTE, IPOST, ICONT);
     recompute_buck(&C_Units[0], IBYTE, IPOST, ICONT);
+    double t_recompute = now_s() - t0;
     t_merge = MPI_Wtime() - t_stage_start;
+    mem_stage_end(MEM_REDIST);
 
     // ---- STAGE: alignments ----------------------------------------------
     // Covers pair_sort_search + ALNtoPAF.
@@ -530,7 +633,21 @@ int main(int argc, char *argv[])
     // pair_sort_search uses NPARTS=1, so it only looks at N_Units[0] and
     // C_Units[0] — exactly the slots we filled with received bytes.
     fprintf(stderr, "[merge] rank %d: starting pair_sort_search\n", my_rank);
+    char task_path[64];
+    snprintf(task_path, sizeof(task_path), "pairs.rank%d.tsv", my_rank);
+    Pair_Task_File = fopen(task_path, "w");
+    if (Pair_Task_File != NULL) {
+        fprintf(Pair_Task_File, "tid\ttype\tanchor\tpartner\tseeds\tseconds\tnhits\tnlass\n");
+        Pair_Task_Hook = write_pair_task;
+    } else
+        fprintf(stderr, "rank %d: cannot open %s; per-task records disabled\n",
+                my_rank, task_path);
+    t0 = now_s();
     pair_sort_search(gdb, gdb);
+    double t_pair_search = now_s() - t0;
+    Pair_Task_Hook = NULL;
+    if (Pair_Task_File != NULL) fclose(Pair_Task_File);
+    mem_stage_end(MEM_ALIGN);
 
     // Convert with a time limit; keep ALNtoPAF's stderr. A failure on any
     // rank makes the run exit non-zero (see the end of main).
@@ -560,6 +677,45 @@ int main(int argc, char *argv[])
             unlink(err_path);
     }
     t_alignments = MPI_Wtime() - t_stage_start;
+    mem_stage_end(MEM_CONVERT);
+
+    // Per-rank merge/alignment breakdown (PR 1). Seeds are 1+IBYTE+JBYTE bytes.
+    {
+        const PairSearchStats *ps = &Pair_Search_Stats;
+        int seed_bytes = 1 + IBYTE + JBYTE;
+        fprintf(stderr,
+                "[pr1] rank %d: slice_records=%lld adapter_s=%.6f merge_core_s=%.6f "
+                "redist_n_s=%.6f redist_c_s=%.6f recompute_s=%.6f "
+                "pair_search_s=%.6f reimport_n_s=%.6f reimport_c_s=%.6f "
+                "sort_n_s=%.6f sort_c_s=%.6f search_n_s=%.6f search_c_s=%.6f "
+                "la_sort_s=%.6f la_merge_s=%.6f convert_s=%.6f "
+                "seed_bytes=%d sent_n_bytes=%lld sent_c_bytes=%lld "
+                "recv_n_bytes=%lld recv_c_bytes=%lld seeds_n=%lld seeds_c=%lld "
+                "record_bytes=%lld adapter_bytes=%lld sarray_bytes=%lld\n",
+                my_rank, (long long) slice_records, t_adapter, t_merge_core,
+                t_redist_n, t_redist_c, t_recompute,
+                t_pair_search, ps->reimport_s[0], ps->reimport_s[1],
+                ps->sort_s[0], ps->sort_s[1], ps->search_s[0], ps->search_s[1],
+                ps->la_sort_s, ps->la_merge_s, conv.elapsed_s,
+                seed_bytes, (long long) n_sent, (long long) c_sent,
+                (long long) n_recv, (long long) c_recv,
+                (long long) ps->nels[0], (long long) ps->nels[1],
+                (long long) record_bytes, (long long) adapter_bytes,
+                (long long) ps->sarray_bytes);
+        char memline[512];
+        long overall = 0;
+        for (int s = 0; s < MEM_NSTAGES; s++)
+            if (Mem_Peak_KB[s] > overall) overall = Mem_Peak_KB[s];
+        int off = snprintf(memline, sizeof(memline),
+                           "[pr1-mem] rank %d: reset_ok=%d overall_peak_kb=%ld",
+                           my_rank, Mem_Reset_OK, overall);
+        for (int s = 0; s < MEM_NSTAGES && off < (int) sizeof(memline); s++)
+            off += snprintf(memline + off, sizeof(memline) - off,
+                            " %s_peak_kb=%ld %s_end_kb=%ld",
+                            Mem_Stage_Name[s], Mem_Peak_KB[s],
+                            Mem_Stage_Name[s], Mem_End_KB[s]);
+        fprintf(stderr, "%s\n", memline);
+    }
 
     // Reduce stage timings to max-across-ranks; print + CSV on rank 0.
     {

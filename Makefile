@@ -60,6 +60,15 @@ PHASE4B_SRCS = src/pga-mpi-merge.c $(CORE_SRCS) src/sort.c src/dsort.c \
 pga-mpi-merge: $(PHASE4B_SRCS) $(LIB_SRCS)
 	$(CC) $(CFLAGS) -o pga-mpi-merge $(PHASE4B_SRCS) $(LIB_SRCS) $(LIBS)
 
+# ASan/UBSan build of the MPI driver, for use-after-free checks of the early
+# buffer frees (PR 1). Run with ASAN_OPTIONS=detect_leaks=0 under srun.
+# -fno-sanitize=alignment: FastGA's packed overlap records (fastga_pipeline.c
+# align/entwine code) are deliberately unaligned; x86 allows it.
+pga-mpi-merge-asan: $(PHASE4B_SRCS) $(LIB_SRCS)
+	@mkdir -p tests/bin
+	$(CC) $(CFLAGS) -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize=alignment \
+	    -o tests/bin/pga-mpi-merge-asan $(PHASE4B_SRCS) $(LIB_SRCS) $(LIBS)
+
 verify-phase1: pga-extract
 	bash scripts/verify_phase1.sh
 
