@@ -29,9 +29,12 @@ pairs. Final executable: `pga-mpi-merge`. Inspected source commit: `ce64406`.
   `msd_sort`'s raw byte 0 and not GIXshow's `lcp` column. `sort_records` alone
   does *not* recalculate it; `recalc_all_lcps` (called from `run_stage2`) does.
 - Distributed sort = global prefix histogram → deterministic bucket ownership →
-  `MPI_BYTE` `Alltoallv` → local radix sort → LCP recalculation → neighbour
-  boundary check + seam fixup. Keep it deterministic and communication-free
-  where it currently is.
+  `MPI_BYTE` exchange (`chunked_alltoallv`: one `Alltoallv` when totals fit
+  `PGA_EXCHANGE_ROUND_BYTES`, else bounded rounds with identical bytes) →
+  local radix sort → LCP recalculation → neighbour boundary check + seam
+  fixup. Keep it deterministic and communication-free where it currently is.
+  The seed exchange in `pga-mpi-merge.c` uses the same engine, streaming
+  file → file.
 - Contig-pair assignment: length-product weights, descending order, `(i,j)`
   tie-break, least-load heap with rank tie-break. `int8_t` storage caps world
   size at 127; the map is `ncontig²` bytes.
