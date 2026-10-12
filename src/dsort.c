@@ -8,6 +8,7 @@
 #include "dsort.h"
 #include "sort.h"
 #include "record.h"
+#include "chunked_exchange.h"
 
 // LCP encoding.
 //
@@ -171,7 +172,7 @@ void compute_destination_map(const int64_t *global_counts, int world_size,
 void organize_send_buffer(const RecordBuffer *local, const int *select,
                           int world_size,
                           uint8_t **send_buf_out,
-                          int *send_counts_out, int *send_displs_out)
+                          int64_t *send_counts_out, int64_t *send_displs_out)
 {
     int rsize = local->sizing.record_size;
 
@@ -190,14 +191,8 @@ void organize_send_buffer(const RecordBuffer *local, const int *select,
     for (int r = 0; r < world_size; r++)
     {
         int64_t bytes_for_r = per_rank_records[r] * (int64_t) rsize;
-        if (bytes_for_r > INT_MAX || total_bytes + bytes_for_r > INT_MAX)
-        {
-            fprintf(stderr,
-                    "organize_send_buffer: per-rank or total send count exceeds int range\n");
-            MPI_Abort(MPI_COMM_WORLD, 1);
-        }
-        send_counts_out[r] = (int) bytes_for_r;
-        send_displs_out[r] = (int) total_bytes;
+        send_counts_out[r] = bytes_for_r;
+        send_displs_out[r] = total_bytes;
         total_bytes += bytes_for_r;
     }
 
@@ -215,7 +210,7 @@ void organize_send_buffer(const RecordBuffer *local, const int *select,
     // cursor[r] tracks byte offset within send_buf for rank r.
     int64_t cursor[world_size];
     for (int r = 0; r < world_size; r++)
-        cursor[r] = (int64_t) send_displs_out[r];
+        cursor[r] = send_displs_out[r];
 
     for (int64_t i = 0; i < local->count; i++)
     {
@@ -400,11 +395,10 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
     compute_destination_map(global_counts, world_size, ksplit, select);
     t1 = MPI_Wtime(); tm->hist_s = t1 - t0; t0 = t1;
 
-    int *send_counts = (int *) malloc(world_size * sizeof(int));
-    int *send_displs = (int *) malloc(world_size * sizeof(int));
-    int *recv_counts = (int *) malloc(world_size * sizeof(int));
-    int *recv_displs = (int *) malloc(world_size * sizeof(int));
-    if (!send_counts || !send_displs || !recv_counts || !recv_displs)
+    int64_t *send_counts = (int64_t *) malloc(world_size * sizeof(int64_t));
+    int64_t *send_displs = (int64_t *) malloc(world_size * sizeof(int64_t));
+    int64_t *recv_counts = (int64_t *) malloc(world_size * sizeof(int64_t));
+    if (!send_counts || !send_displs || !recv_counts)
     {
         fprintf(stderr, "run_stage2: out of memory for count arrays\n");
         MPI_Abort(comm, 1);
@@ -415,22 +409,12 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
                          &send_buf, send_counts, send_displs);
     t1 = MPI_Wtime(); tm->pack_s = t1 - t0; t0 = t1;
 
-    MPI_Alltoall(send_counts, 1, MPI_INT,
-                 recv_counts, 1, MPI_INT, comm);
+    // int64 sizes: per-rank totals may exceed INT_MAX (large datasets).
+    xchg_exchange_sizes(send_counts, recv_counts, comm);
 
     int64_t recv_total_bytes = 0;
     for (int r = 0; r < world_size; r++)
-    {
-        recv_displs[r] = (int) recv_total_bytes;
         recv_total_bytes += recv_counts[r];
-        if (recv_total_bytes > INT_MAX)
-        {
-            fprintf(stderr,
-                    "run_stage2: incoming byte count %lld on rank %d exceeds int range\n",
-                    (long long) recv_total_bytes, my_rank);
-            MPI_Abort(comm, 1);
-        }
-    }
     int64_t recv_record_count = recv_total_bytes / rsize;
 
     recv->sizing   = local->sizing;
@@ -439,19 +423,25 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
     recv->data     = (uint8_t *) malloc(recv_total_bytes + 1);
     if (recv->data == NULL)
     {
-        fprintf(stderr, "run_stage2: out of memory for recv buffer on rank %d\n", my_rank);
+        fprintf(stderr, "run_stage2: out of memory for recv buffer on rank %d (%lld bytes)\n",
+                my_rank, (long long) recv_total_bytes + 1);
         MPI_Abort(comm, 1);
     }
 
-    MPI_Alltoallv(send_buf,   send_counts, send_displs, MPI_BYTE,
-                  recv->data, recv_counts, recv_displs, MPI_BYTE,
-                  comm);
+    // One Alltoallv when every rank's totals fit the round budget (the
+    // pre-existing behaviour), otherwise bounded rounds; same bytes either way.
+    XchgSource xsrc = { send_buf, NULL, NULL };
+    XchgSink   xdst = { recv->data, NULL, NULL };
+    XchgStats  xst;
+    chunked_alltoallv(send_counts, recv_counts, rsize, xchg_round_budget_from_env(),
+                      &xsrc, &xdst, comm, &xst);
+    tm->exchange_rounds  = xst.rounds;
+    tm->exchange_staging = xst.staging_bytes;
 
     free(send_buf);
     free(send_counts);
     free(send_displs);
     free(recv_counts);
-    free(recv_displs);
     free(ksplit);
     free(select);
     t1 = MPI_Wtime(); tm->exchange_s = t1 - t0; t0 = t1;

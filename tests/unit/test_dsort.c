@@ -272,7 +272,7 @@ static void s09_organize_send(void)
     enum { N = 1000, WS = 3 };
     RecordBuffer buf;
     int     *select = malloc(NUM_BUCK * sizeof(int));
-    int      counts[WS], displs[WS];
+    int64_t  counts[WS], displs[WS];
     uint8_t *send = NULL;
     uint32_t x = 13579u;
     int64_t  i;
@@ -299,13 +299,14 @@ static void s09_organize_send(void)
 
     CHECK_EQ_I(displs[0], 0);
     for (b = 0; b < WS; b++)
-        CHECK_MSG(counts[b] == (int) (per[b] * rsize),
-                  "dest %d: count %d, want %lld", b, counts[b], (long long) (per[b] * rsize));
+        CHECK_MSG(counts[b] == per[b] * rsize,
+                  "dest %d: count %lld, want %lld", b, (long long) counts[b], (long long) (per[b] * rsize));
     for (b = 1; b < WS; b++)
         CHECK_MSG(displs[b] == displs[b - 1] + counts[b - 1],
-                  "dest %d: displ %d != %d + %d", b, displs[b], displs[b - 1], counts[b - 1]);
-    CHECK_MSG(counts[2] == 0, "destination 2 should be empty, got %d", counts[2]);
-    CHECK_EQ_I(displs[WS - 1] + counts[WS - 1], (int) (N * rsize));
+                  "dest %d: displ %lld != %lld + %lld", b, (long long) displs[b],
+                  (long long) displs[b - 1], (long long) counts[b - 1]);
+    CHECK_MSG(counts[2] == 0, "destination 2 should be empty, got %lld", (long long) counts[2]);
+    CHECK_EQ_I(displs[WS - 1] + counts[WS - 1], (int64_t) N * rsize);
 
     // every record lands in its destination's slice, exactly once, byte-identical
     {

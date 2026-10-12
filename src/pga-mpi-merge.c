@@ -44,6 +44,7 @@
 #include "fastga_pipeline.h"
 #include "contig_assignment.h"
 #include "seed_exchange.h"
+#include "chunked_exchange.h"
 
 // constants.h's #define KMER 40 collides with the runtime int variable.
 #undef KMER
@@ -190,32 +191,64 @@ static int64 read_file_all(int fd, uint8 **out_buf)
     return size;
 }
 
-// Redistribute seeds for a single seed type (N or C) via MPI Alltoallv.
+// Redistribute seeds for a single seed type (N or C).
+//
+// Each destination's seeds are in its own unit file; the incoming seeds are
+// written to one combined file in source-rank order (identical bytes to the
+// former single MPI_Alltoallv). The exchange streams file -> file in bounded
+// rounds (chunked_alltoallv), so neither a full send buffer nor a full receive
+// buffer is allocated, and per-rank sizes above INT_MAX are fine.
 //
 // Inputs:
 //   units       — N_Units or C_Units, length world_size (one outgoing file per dest)
 //   world_size  — # MPI ranks
 //   tag         — 'N' or 'C', for diagnostics
+//   seed_bytes  — bytes per seed record (every chunk holds whole seeds)
 //   sort_path   — scratch dir
 //   pair_name   — scratch file basename
 //   out_path    — caller-provided buffer; receives path of fresh local file
 //   sent_out    — receives total bytes this rank sent (incl. to itself)
+//   xst_out     — receives exchange statistics (rounds, staging bytes)
 // Returns:
 //   total bytes received (also = size of file at *out_path).
 //
 // Side effect: closes/replaces units[0].file with the combined incoming file.
+
+typedef struct { IOBuffer *units; char tag; } SeedSource;
+typedef struct { int fd; const int64_t *prefix; char tag; } SeedSink;
+
+static void seed_fill(void *ctx, int peer, int64_t off, int64_t len, uint8_t *dst)
+{
+    SeedSource *s = (SeedSource *) ctx;
+    int64_t got = 0;
+    while (got < len) {
+        ssize_t n = pread(s->units[peer].file, dst + got, len - got, off + got);
+        if (n <= 0) { perror("pread seeds"); MPI_Abort(MPI_COMM_WORLD, 1); }
+        got += n;
+    }
+}
+
+static void seed_drain(void *ctx, int peer, int64_t off, int64_t len, const uint8_t *src)
+{
+    SeedSink *s = (SeedSink *) ctx;
+    int64_t put = 0;
+    while (put < len) {
+        ssize_t n = pwrite(s->fd, src + put, len - put, s->prefix[peer] + off + put);
+        if (n <= 0) { perror("pwrite combined"); MPI_Abort(MPI_COMM_WORLD, 1); }
+        put += n;
+    }
+}
+
 static int64 redistribute_seeds(IOBuffer *units, int world_size, char tag,
+                                int seed_bytes,
                                 const char *sort_path, const char *pair_name,
                                 char *out_path, size_t out_path_len,
-                                int64 *sent_out)
+                                int64 *sent_out, XchgStats *xst_out)
 {
-    int my_rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+    memset(xst_out, 0, sizeof(*xst_out));
 
-    // Single-rank shortcut: nothing to exchange. Just keep units[0].file
-    // (which already holds all our seeds, since RankForPair routed every
-    // pair to rank 0 = ourselves). Skip the Alltoallv to avoid the INT_MAX
-    // chunking issue when total seed bytes > 2 GB.
+    // Single-rank shortcut: nothing to exchange. units[0].file already holds
+    // all our seeds, since RankForPair routed every pair to rank 0 = ourselves.
     if (world_size == 1) {
         off_t size = lseek(units[0].file, 0, SEEK_END);
         if (lseek(units[0].file, 0, SEEK_SET) < 0) {
@@ -227,89 +260,53 @@ static int64 redistribute_seeds(IOBuffer *units, int world_size, char tag,
         return size;
     }
 
-    int64_t *send_sizes64 = calloc(world_size, sizeof(int64_t));
-    int64  send_total64 = 0;
-    for (int r = 0; r < world_size; r++) {
-        send_sizes64[r] = lseek(units[r].file, 0, SEEK_END);
-        if (send_sizes64[r] < 0) { perror("lseek"); MPI_Abort(MPI_COMM_WORLD, 1); }
-        send_total64 += send_sizes64[r];
+    int64_t *send_sizes = calloc(world_size, sizeof(int64_t));
+    int64_t *recv_sizes = calloc(world_size, sizeof(int64_t));
+    int64_t *recv_prefix = calloc(world_size, sizeof(int64_t));
+    if (!send_sizes || !recv_sizes || !recv_prefix) {
+        fprintf(stderr, "redistribute_seeds: out of memory\n"); MPI_Abort(MPI_COMM_WORLD, 1);
     }
-    *sent_out = send_total64;
-    uint8 *send_buf = malloc(send_total64 > 0 ? (size_t) send_total64 : 1);
-    if (send_buf == NULL) { perror("malloc send_buf"); MPI_Abort(MPI_COMM_WORLD, 1); }
+    int64 send_total = 0;
+    for (int r = 0; r < world_size; r++) {
+        send_sizes[r] = lseek(units[r].file, 0, SEEK_END);
+        if (send_sizes[r] < 0) { perror("lseek"); MPI_Abort(MPI_COMM_WORLD, 1); }
+        send_total += send_sizes[r];
+    }
+    *sent_out = send_total;
 
-    int *send_counts = calloc(world_size, sizeof(int));
-    int *send_displs = calloc(world_size, sizeof(int));
-    if (plan_byte_exchange(send_sizes64, world_size, send_counts, send_displs) != 0) {
-        fprintf(stderr, "rank %d: outgoing %c bytes exceed the int range of "
-                        "MPI_Alltoallv counts/displacements\n", my_rank, tag);
-        MPI_Abort(MPI_COMM_WORLD, 1);
-    }
-    int64 cum = 0;
+    xchg_exchange_sizes(send_sizes, recv_sizes, MPI_COMM_WORLD);
+    int64 recv_total = 0;
     for (int r = 0; r < world_size; r++) {
-        if (send_sizes64[r] > 0) {
-            if (lseek(units[r].file, 0, SEEK_SET) < 0) { perror("lseek"); MPI_Abort(MPI_COMM_WORLD, 1); }
-            int64 got = 0;
-            while (got < send_sizes64[r]) {
-                ssize_t n = read(units[r].file, send_buf + cum + got, send_sizes64[r] - got);
-                if (n <= 0) { perror("read"); MPI_Abort(MPI_COMM_WORLD, 1); }
-                got += n;
-            }
-        }
-        cum += send_sizes64[r];
+        recv_prefix[r] = recv_total;
+        recv_total += recv_sizes[r];
+    }
+
+    snprintf(out_path, out_path_len, "%s/%s.combined.%c",
+             sort_path, pair_name, tag);
+    int fd = open(out_path, O_RDWR | O_CREAT | O_TRUNC, 0666);
+    if (fd < 0) { perror("open combined"); MPI_Abort(MPI_COMM_WORLD, 1); }
+
+    SeedSource sctx = { units, tag };
+    SeedSink   dctx = { fd, recv_prefix, tag };
+    XchgSource xsrc = { NULL, seed_fill, &sctx };
+    XchgSink   xdst = { NULL, seed_drain, &dctx };
+    chunked_alltoallv(send_sizes, recv_sizes, seed_bytes, xchg_round_budget_from_env(),
+                      &xsrc, &xdst, MPI_COMM_WORLD, xst_out);
+
+    for (int r = 0; r < world_size; r++) {
         close(units[r].file);
         char path[1024];
         snprintf(path, sizeof(path), "%s/%s.%d.%c",
                  sort_path, pair_name, units[r].inum, tag);
         unlink(path);
     }
-
-    int *recv_counts = calloc(world_size, sizeof(int));
-    int *recv_displs = calloc(world_size, sizeof(int));
-    MPI_Alltoall(send_counts, 1, MPI_INT, recv_counts, 1, MPI_INT, MPI_COMM_WORLD);
-
-    int64 recv_total64 = 0;
-    for (int r = 0; r < world_size; r++) {
-        recv_displs[r] = (int) recv_total64;
-        recv_total64 += recv_counts[r];
-        if (recv_total64 > (int64) INT_MAX) {
-            fprintf(stderr, "rank %d: incoming %c total (%lld) > INT_MAX, "
-                            "MPI_Alltoallv chunking required (TODO)\n",
-                    my_rank, tag, (long long) recv_total64);
-            MPI_Abort(MPI_COMM_WORLD, 1);
-        }
-    }
-
-    uint8 *recv_buf = malloc(recv_total64 > 0 ? (size_t) recv_total64 : 1);
-    if (recv_buf == NULL) { perror("malloc recv_buf"); MPI_Abort(MPI_COMM_WORLD, 1); }
-
-    MPI_Alltoallv(send_buf, send_counts, send_displs, MPI_BYTE,
-                  recv_buf, recv_counts, recv_displs, MPI_BYTE,
-                  MPI_COMM_WORLD);
-
-    free(send_buf);
-    free(send_sizes64);
-    free(send_counts);
-    free(send_displs);
-    free(recv_counts);
-    free(recv_displs);
-
-    // Write recv_buf to a fresh local file (will become units[0].file).
-    snprintf(out_path, out_path_len, "%s/%s.combined.%c",
-             sort_path, pair_name, tag);
-    int fd = open(out_path, O_RDWR | O_CREAT | O_TRUNC, 0666);
-    if (fd < 0) { perror("open combined"); MPI_Abort(MPI_COMM_WORLD, 1); }
-    int64 written = 0;
-    while (written < recv_total64) {
-        ssize_t n = write(fd, recv_buf + written, recv_total64 - written);
-        if (n <= 0) { perror("write combined"); MPI_Abort(MPI_COMM_WORLD, 1); }
-        written += n;
-    }
-    free(recv_buf);
+    free(send_sizes);
+    free(recv_sizes);
+    free(recv_prefix);
 
     units[0].file = fd;
     units[0].inum = 0;
-    return recv_total64;
+    return recv_total;
 }
 
 // Recompute units[0].buck[icont] = number of seeds (per A-contig) in the
@@ -601,15 +598,16 @@ int main(int argc, char *argv[])
 
     char n_combined[1024], c_combined[1024];
     int64 n_sent, c_sent;
+    XchgStats n_xst, c_xst;
     t0 = now_s();
-    int64 n_recv = redistribute_seeds(N_Units, world_size, 'N',
+    int64 n_recv = redistribute_seeds(N_Units, world_size, 'N', 1 + IBYTE + JBYTE,
                                       SORT_PATH, PAIR_NAME,
-                                      n_combined, sizeof(n_combined), &n_sent);
+                                      n_combined, sizeof(n_combined), &n_sent, &n_xst);
     double t_redist_n = now_s() - t0;
     t0 = now_s();
-    int64 c_recv = redistribute_seeds(C_Units, world_size, 'C',
+    int64 c_recv = redistribute_seeds(C_Units, world_size, 'C', 1 + IBYTE + JBYTE,
                                       SORT_PATH, PAIR_NAME,
-                                      c_combined, sizeof(c_combined), &c_sent);
+                                      c_combined, sizeof(c_combined), &c_sent, &c_xst);
     double t_redist_c = now_s() - t0;
     fprintf(stderr, "[merge] rank %d: received N=%lld C=%lld bytes\n",
             my_rank, (long long) n_recv, (long long) c_recv);
@@ -691,7 +689,9 @@ int main(int argc, char *argv[])
                 "la_sort_s=%.6f la_merge_s=%.6f convert_s=%.6f "
                 "seed_bytes=%d sent_n_bytes=%lld sent_c_bytes=%lld "
                 "recv_n_bytes=%lld recv_c_bytes=%lld seeds_n=%lld seeds_c=%lld "
-                "record_bytes=%lld adapter_bytes=%lld sarray_bytes=%lld\n",
+                "record_bytes=%lld adapter_bytes=%lld sarray_bytes=%lld "
+                "stage2_rounds=%lld stage2_staging=%lld redist_n_rounds=%lld "
+                "redist_c_rounds=%lld redist_staging=%lld\n",
                 my_rank, (long long) slice_records, t_adapter, t_merge_core,
                 t_redist_n, t_redist_c, t_recompute,
                 t_pair_search, ps->reimport_s[0], ps->reimport_s[1],
@@ -701,7 +701,12 @@ int main(int argc, char *argv[])
                 (long long) n_recv, (long long) c_recv,
                 (long long) ps->nels[0], (long long) ps->nels[1],
                 (long long) record_bytes, (long long) adapter_bytes,
-                (long long) ps->sarray_bytes);
+                (long long) ps->sarray_bytes,
+                (long long) g_stage2_timing.exchange_rounds,
+                (long long) g_stage2_timing.exchange_staging,
+                (long long) n_xst.rounds, (long long) c_xst.rounds,
+                (long long) (n_xst.staging_bytes > c_xst.staging_bytes
+                             ? n_xst.staging_bytes : c_xst.staging_bytes));
         char memline[512];
         long overall = 0;
         for (int s = 0; s < MEM_NSTAGES; s++)
