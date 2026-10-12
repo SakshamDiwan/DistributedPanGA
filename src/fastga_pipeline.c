@@ -7,6 +7,7 @@
 #include <math.h>
 #include <pthread.h>
 #include <sys/resource.h>
+#include <time.h>
 
 #include "libfastk.h"
 #include "GDB.h"
@@ -223,6 +224,17 @@ static int  ALIGN_SORT(const void *l, const void *r);
 static int  SORT_MAP(const void *x, const void *y);
 static void ovl_reload(IO_block *in, int64 bsize);
 static void maheap(int s, Overlap **heap, int hsize);
+
+// Instrumentation (PR 1): see fastga_pipeline.h. Not part of upstream FastGA.
+
+PairSearchStats Pair_Search_Stats;
+PairTaskHook    Pair_Task_Hook = NULL;
+
+static double pss_now(void)
+{ struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC,&ts);
+  return (ts.tv_sec + ts.tv_nsec*1e-9);
+}
 
 // ============================================================================
 // new_self_merge_thread
@@ -1009,6 +1021,24 @@ static int ALIGN_SORT(const void *l, const void *r)
 // search_seeds
 // ============================================================================
 
+// align_contigs plus, if Pair_Task_Hook is set, a per-task record (PR 1).
+static void timed_align_contigs(uint8 *b, uint8 *x, int swide, int ctg1, int ctg2,
+                                Contig_Bundle *pair, int comp)
+{ double t0;
+  int64  nh, nl;
+
+  if (Pair_Task_Hook == NULL)
+    { align_contigs(b,x,swide,ctg1,ctg2,pair);
+      return;
+    }
+  nh = pair->nhits;
+  nl = pair->nlass;
+  t0 = pss_now();
+  align_contigs(b,x,swide,ctg1,ctg2,pair);
+  Pair_Task_Hook(pair->tid,comp,ctg1,ctg2,(x-b)/swide,pss_now()-t0,
+                 pair->nhits-nh,pair->nlass-nl);
+}
+
 void *search_seeds(void *args)
 { TP *parm = (TP *) args;
   int      swide  = parm->swide;
@@ -1067,11 +1097,11 @@ void *search_seeds(void *args)
           b = x;
           for (x += swide; x < e; x += swide)
             if (memcmp(_jcrnt,x+foffs,JCONT))
-              { align_contigs(b,x,swide,icrnt,(int) jcrnt,pair);
+              { timed_align_contigs(b,x,swide,icrnt,(int) jcrnt,pair,comp);
                 memcpy(_jcrnt,x+foffs,JCONT);
                 b = x;
               }
-          align_contigs(b,x,swide,icrnt,jcrnt,pair);
+          timed_align_contigs(b,x,swide,icrnt,jcrnt,pair,comp);
         }
     }
 
@@ -1432,6 +1462,10 @@ void pair_sort_search(GDB *gdb1, GDB *gdb2)
   int       nused;
   int       i, p, j, u;
 
+  double t0;
+
+  bzero(&Pair_Search_Stats,sizeof(Pair_Search_Stats));
+
   if (VERBOSE)
     { fprintf(stderr,"\n  Starting seed sort and alignment search, %d parts\n",2*NPARTS);
       fflush(stderr);
@@ -1467,6 +1501,7 @@ void pair_sort_search(GDB *gdb1, GDB *gdb2)
 
     swide  = 2*DBYTE + JCONT + 2;
     sarray = Malloc((nelmax+1)*swide,"Sort Array");
+    Pair_Search_Stats.sarray_bytes = (nelmax+1)*swide;
     panel  = Malloc(NCONTS*sizeof(int64),"Bucket Array");
     if (sarray == NULL || panel == NULL) exit (1);
   }
@@ -1522,6 +1557,7 @@ void pair_sort_search(GDB *gdb1, GDB *gdb2)
         { fprintf(stderr,"\r    Loading seeds for part %d  ",u*NPARTS+i+1);
           fflush(stderr);
         }
+      t0 = pss_now();
       for (p = 0; p < NTHREADS; p++)
         { rarm[p].in = nu[p].file;
           lseek(nu[p].file,0,SEEK_SET);
@@ -1534,6 +1570,8 @@ void pair_sort_search(GDB *gdb1, GDB *gdb2)
       reimport_thread(rarm);
       for (p = 1; p < NTHREADS; p++)
         pthread_join(threads[p],NULL);
+      Pair_Search_Stats.reimport_s[u] += pss_now()-t0;
+      t0 = pss_now();
 
       { int64 prev, next;
         bzero(panel,sizeof(int64)*NCONTS);
@@ -1549,17 +1587,21 @@ void pair_sort_search(GDB *gdb1, GDB *gdb2)
             fflush(stderr);
           }
         nused = rmsd_sort(sarray,nels,swide,swide,NCONTS,panel,NTHREADS,range);
+        Pair_Search_Stats.nels[u] += nels;
       }
+      Pair_Search_Stats.sort_s[u] += pss_now()-t0;
       if (VERBOSE)
         { fprintf(stderr,"\r    Searching seeds for part %d",u*NPARTS+i+1);
           fflush(stderr);
         }
+      t0 = pss_now();
       for (p = 0; p < nused; p++) tarm[p].comp = u;
       for (p = 1; p < nused; p++)
         pthread_create(threads+p,NULL,search_seeds,tarm+p);
       search_seeds(tarm);
       for (p = 1; p < nused; p++)
         pthread_join(threads[p],NULL);
+      Pair_Search_Stats.search_s[u] += pss_now()-t0;
     }
 
   free(panel);
@@ -1594,11 +1636,15 @@ void pair_sort_search(GDB *gdb1, GDB *gdb2)
       fflush(stderr);
     }
 
+  t0 = pss_now();
   for (p = 1; p < NTHREADS; p++)
     pthread_create(threads+p,NULL,la_sort,tarm+p);
   la_sort(tarm);
   for (p = 1; p < NTHREADS; p++)
     pthread_join(threads[p],NULL);
+  Pair_Search_Stats.la_sort_s = pss_now()-t0;
 
+  t0 = pss_now();
   if (la_merge(tarm)) exit (1);
+  Pair_Search_Stats.la_merge_s = pss_now()-t0;
 }
