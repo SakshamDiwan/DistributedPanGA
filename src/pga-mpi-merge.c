@@ -96,7 +96,13 @@ int     NUNITS      = 1;
 // Memory: each stage's peak RSS comes from VmHWM in /proc/self/status. The
 // high-water mark is reset at every stage boundary by writing "5" to
 // /proc/self/clear_refs (Linux >= 4.0); if that fails the peaks are
-// cumulative and mem_reset_ok is 0 in the output.
+// cumulative and reset_ok is 0 in the output.
+//
+// The reset also resets what getrusage / wait4 report as ru_maxrss, so
+// /usr/bin/time -v and sacct MaxRSS then show only the last stage. Use
+// overall_peak_kb from the [pr1-mem] line instead, or set
+// PGA_MEM_STAGE_RESET=0 to keep the external numbers valid (per-stage peaks
+// are then cumulative).
 
 enum { MEM_EXTRACT, MEM_STAGE2, MEM_ADAPTER, MEM_MERGE, MEM_REDIST,
        MEM_ALIGN, MEM_CONVERT, MEM_NSTAGES };
@@ -121,6 +127,8 @@ static void read_rss_kb(long *rss_kb, long *hwm_kb)
 
 static void reset_hwm(void)
 {
+    const char *e = getenv("PGA_MEM_STAGE_RESET");
+    if (e != NULL && strcmp(e, "0") == 0) { Mem_Reset_OK = 0; return; }
     int fd = open("/proc/self/clear_refs", O_WRONLY);
     if (fd < 0 || write(fd, "5", 1) != 1) Mem_Reset_OK = 0;
     if (fd >= 0) close(fd);
@@ -695,8 +703,12 @@ int main(int argc, char *argv[])
                 (long long) record_bytes, (long long) adapter_bytes,
                 (long long) ps->sarray_bytes);
         char memline[512];
-        int off = snprintf(memline, sizeof(memline), "[pr1-mem] rank %d: reset_ok=%d",
-                           my_rank, Mem_Reset_OK);
+        long overall = 0;
+        for (int s = 0; s < MEM_NSTAGES; s++)
+            if (Mem_Peak_KB[s] > overall) overall = Mem_Peak_KB[s];
+        int off = snprintf(memline, sizeof(memline),
+                           "[pr1-mem] rank %d: reset_ok=%d overall_peak_kb=%ld",
+                           my_rank, Mem_Reset_OK, overall);
         for (int s = 0; s < MEM_NSTAGES && off < (int) sizeof(memline); s++)
             off += snprintf(memline + off, sizeof(memline) - off,
                             " %s_peak_kb=%ld %s_end_kb=%ld",
