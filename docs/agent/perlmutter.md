@@ -114,6 +114,16 @@ uninterruptible I/O cannot be killed: the driver stops waiting and exits, but
 the node may still need Slurm cleanup. Still check that `out.rank*.paf` exist
 and match the reference.
 
+**`srun --export=ALL,PATH=…` does not set the ranks' `PATH` [executed
+2026-10-12, job 59707626].** Other variables passed this way arrive (for
+example `PGA_ALNTOPAF_TIMEOUT`), but the ranks still get the user's normal
+`PATH`. To change which `ALNtoPAF` the ranks find, set `PATH` in the shell that
+runs `srun`:
+
+```bash
+( export PATH=/path/to/bin:/usr/bin:/bin; srun -n 2 ./pga-mpi-merge "$GDB_STEM" )
+```
+
 In this checkout `ALNtoPAF` is **not** on `PATH` and neither `~/FASTGA` nor
 `/global/u2/s/sdiwan/FASTGA` exists **[executed]**, so no end-to-end run is
 possible yet.
