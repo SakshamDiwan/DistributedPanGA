@@ -4,7 +4,8 @@ Last updated: 2026-10-12 (O1 closed).
 
 ## Current objective
 
-**O1 is closed.** See `o1-final-report.md`.
+**O1 is closed.** See `o1-final-report.md` (ACM PDF:
+`docs/o1-report/o1-final-report.pdf`).
 - The extraction speedup (O1a) is merged in PR #7.
 - O1b, O1c, O1d and supermers were dropped, with evidence.
 
@@ -42,7 +43,8 @@ Merge in order: #9 → #10 → #11 → this.
 
   `$SCRATCH` is purged after ~8 weeks idle. Sources: yeast7 from
   `hypervolu.me/~erik/yeast`; the others from Zenodo 10.5281/zenodo.7937947.
-- Job scripts and logs: `~/pga-jobs/` (not in the repo). The user submits all
+- Job scripts: `jobs/` (copies of the scripts behind each result; see
+  `jobs/README.md`). Logs stay in `~/pga-jobs/*/logs/`. The user submits all
   Slurm jobs.
 
 ## Validation executed (latest)

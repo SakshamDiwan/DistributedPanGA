@@ -1,5 +1,9 @@
 # O1 final report — HySortK-inspired extraction (closed)
 
+An ACM two-column version is in `docs/o1-report/o1-final-report.tex` (built PDF:
+`docs/o1-report/o1-final-report.pdf`; rebuild with
+`module load texlive/2024; latexmk -pdf o1-final-report.tex`).
+
 **Status: closed, 2026-10-12.** O1 was the proposal's first objective: speed
 up the extraction stage of DistributedPanGA, using ideas from HySortK (Li &
 Guidi, ICPP 2024). The deliverable is merged in PR #7. The other planned
