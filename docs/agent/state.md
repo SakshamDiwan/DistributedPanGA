@@ -1,105 +1,81 @@
 # State / handoff
 
-Last updated: 2026-10-11 (after O1a).
+Last updated: 2026-10-12 (O1 closed).
 
 ## Current objective
 
-Week 1 is complete: verified commit, yeast7 baseline and O1 design. Next is
-O1, revised in `o1-design.md` (revision 2) so that the HySortK contribution is
-the destination-aware staging (O1c), not just threading. The first code step
-is **O1-0** (instrumentation and the tie-order experiment), then **O1a**.
+**O1 is closed.** See `o1-final-report.md`.
+- The extraction speedup (O1a) is merged in PR #7.
+- O1b, O1c, O1d and supermers were dropped, with evidence.
 
-## Commit and environment
+There is no active objective. The next candidate is alignment-stage
+scheduling (proposal O3), pending a decision with the advisor
+(`decision-gate-2.md`).
 
-- `b4f5d3b` (merged `main`), branch `chore/week1-baseline`.
+## Code status
+
+| PR | content | state |
+|---|---|---|
+| #7 | week-1 verification, O1-0, O1a | merged |
+| #8 | `ALNtoPAF` timeout, fatal on failure | merged |
+| #9 | merge/alignment instrumentation, early memory frees | open, base `main` |
+| #10 | exchanges > 2 GB per rank (bounded rounds) | open, stacked on #9 |
+| #11 | `PGA_SCRATCH_DIR`, per-task cost diagnostics, decision gates | open, stacked on #10 |
+| (this) | O1 final report, this file | stacked on #11 |
+
+Merge in order: #9 → #10 → #11 → this.
+
+## Environment
+
 - Build and run under `module load cpu; module unload darshan` with `cc`
   (`build.md`).
-- FastGA tools are in `~/FASTGA` (`178afcb`).
-- yeast7 fixtures live in `$SCRATCH/pga-fixtures/`, symlinked from
-  `tests/fixtures/`. Scratch is purged after ~8 weeks idle; regenerate with
-  `~/pga-jobs/week1/pga_w1_B.sbatch`.
-- Job scripts and logs: `~/pga-jobs/week1/`. The user submits all Slurm jobs.
+- FastGA tools: `~/FASTGA` (`178afcb`).
+- Datasets with FastGA gold: `$SCRATCH/pga-fixtures/`, with a `MANIFEST.txt`
+  each. yeast7 is also symlinked from `tests/fixtures/`.
 
-## Validation executed (all green)
+  | dataset | size | gold alignments |
+  |---|---|---|
+  | yeast7 | 83 Mbp | 43,126 |
+  | scerevisiae8 | 96 Mbp | 50,046 |
+  | primates4.chr6 | 679 Mbp | 1,547,485 |
+  | primates14.chr6 | 2.64 Gbp | 4,577,556 |
 
-- **Small fixture** (job 58873003): unit (42,471 checks), ASan/UBSan, MPI tier
-  at ws 1–8, all phase verifiers, e2e.
-- **yeast7:** phase1/2/stage1/stage2/LCP at N=1/2/4/8 (jobs 58873975 and
-  59676624).
-- **yeast7 e2e:** sorted, duplicate-preserving PAF `cmp` vs FastGA gold
-  matches in all 16 runs (jobs 58873975 and 59676625).
-- Details: `tests/RESULTS.md`. Timings: `baseline.md`.
+  `$SCRATCH` is purged after ~8 weeks idle. Sources: yeast7 from
+  `hypervolu.me/~erik/yeast`; the others from Zenodo 10.5281/zenodo.7937947.
+- Job scripts and logs: `~/pga-jobs/` (not in the repo). The user submits all
+  Slurm jobs.
 
-## Key baseline facts
+## Validation executed (latest)
 
-- Wall time: 113.3 / 67.1 / 42.9 / 44.4 s at N = 1/2/4/8.
-- `extract_s`: 48.8 / 31.3 / 24.1 / **33.9** s. Extraction regresses at N=8
-  and is 76% of wall time there; every other stage scales.
+- **Correctness:** every completed run since PR #7 matches FastGA gold.
+  scerevisiae8 at N=2 aborted on #9 alone (2 GB exchange limit); #10 fixes
+  it. Runs covered:
+  - yeast7, scerevisiae8: N = 1–8;
+  - primates4: N = 4–16;
+  - primates14: N = 16, and 32 on 2 nodes.
+- **Test suites:** unit 44,231 checks plus ASan, and the MPI tier, on the
+  #10/#11 code.
+- **Jobs:** 59712760, 59713118, 59715282, 59717508, 59717520. Results are in
+  `pr1-results.md`, `pr2-results.md` and `decision-gate-{1,2}.md`.
 
-## Open unknowns
+## Open items (recorded, not fixed)
 
-- Is the cause of the extraction regression per-seed `Get_Contig_Piece` I/O,
-  Lustre contention, or work-split imbalance? O1-0 answers this.
-- Does the PAF depend on the pre-sort order of equal k-mers (`msd_sort` is not
-  stable)? O1-0 runs the shuffle experiment, which decides O1c's ordering.
-- HySortK has no licence file: reuse ideas only.
-
-## Follow-up defects (recorded, not fixed)
-
-- **Fixed since 2026-09-10:** items 1 (send-displacement guard) and 2 (R-01
-  seam LCP).
-- **Still open:**
-  - `int8_t` world-size cap of 127.
-  - Two `ncontig²` maps.
-  - 128 MiB adapter index per rank.
-  - Non-fatal `ALNtoPAF` failure.
-  - Dead `cleanup` label and `read_file_all`.
-  - `O(ixlen)` `GoTo_Kmer_Index`.
-  - Script portability.
-  - Dead doc references.
-- **New:**
-  - `Read_GDB` returns 1 on error, but drivers test `< 0`, so the check can
-    never fire.
-  - The CSV reports only `MPI_MAX` per stage, so `total_s` overstates wall
-    time at N=8.
-
-## O1-0 (done, job 59679320)
-
-Findings are in `o1-0-results.md`.
-- **Measured:**
-  - Work is balanced across ranks.
-  - Each extracted record costs one `lseek` syscall (`fseeko` in
-    `Get_Contig_Piece`).
-  - Per-rank system time stays at 19–30 s whatever N is.
-  - The N=8 `sort_s` rise is Allreduce wait.
-  - The shuffled pre-sort order gives an identical PAF (yeast7, N=1/4,
-    3 seeds).
-- **Hypotheses:** the `lseek`s dominate extraction (H1), and contention on
-  the shared file causes the N=8 regression (H2).
-
-## O1a (done, jobs 59686567 + 59691033, commit `f528988`)
-
-Pack k-mers from the scan window instead of one `Get_Contig_Piece` (`lseek`)
-per record. All gates green; 20 of 20 e2e runs match gold. Results are in
-`o1a-results.md`.
-
-| | wall N=1 | wall N=8 | extract N=1 | extract N=8 |
-|---|---|---|---|---|
-| before | 113.8 s | 39.1 s | 49.8 s | 28.6 s |
-| after | 65.4 s | 10.6 s | 1.5 s | 0.2 s |
-
-Extraction is now ~2% of wall time. At N=8, `align_s` is 63% and `merge_s`
-22%.
-
-New defect: job 59686567 hung in the external `ALNtoPAF` (GDB on `/tmp`,
-stderr discarded, no timeout), leaving node nid006480 in `CG`. This extends
-defect 6.
+- **127-rank limit:** the contig-pair map is `int8_t`, and two `ncontig²`
+  maps are live at once.
+- **Large self-alignment tasks floor scaling:** primates14's largest is
+  773 s. Splitting them while keeping FastGA-identical output is open.
+- **Peak memory per stage:** with #9, stage 2 is the peak at 1 rank. O1c-style
+  staging could lower it (optional).
+- **Old defects still open:**
+  - 128 MiB adapter index per rank;
+  - dead `cleanup` label and `read_file_all`;
+  - `O(ixlen)` `GoTo_Kmer_Index`;
+  - script portability;
+  - `Read_GDB` error check never fires (it returns 1, callers test `< 0`);
+  - the CSV `total_s` is a sum of per-stage maxima.
 
 ## Next action
 
-Decide with the user, because O1's measured target is now largely gone:
-- **O1b:** ≤ 1.5 s possible on yeast7. Deprioritised.
-- **O1c:** a memory case, not a runtime case, on yeast7.
-- **Alternatives:** merge O1-0 + O1a into `main` via PR; a larger dataset
-  where extraction and memory matter again; or the `ALNtoPAF` timeout/fatal
-  fix.
+Merge #9–#11 and this PR. Then decide with the advisor whether to pursue O3,
+a dynamic alignment-task scheduler with self-first ordering (modelled −33 to
+−42% for the slowest rank at 16–32 ranks), or to stop here.
