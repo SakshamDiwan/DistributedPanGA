@@ -34,6 +34,7 @@ report/
 !CLAUDE.md
 !docs/agent/*.md
 !.claude/skills/*/SKILL.md
+!jobs/README.md
 
 # Slurm job logs from bounded validation runs
 *.out

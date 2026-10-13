@@ -1,6 +1,6 @@
 # O1 design — HySortK-informed extraction and send-path redesign
 
-Status: **design only, nothing implemented.** Revision 2 (2026-10-11), written
+Status: **complete (O1 closed 2026-10-12).** See `o1-final-report.md` for what was built, what was dropped and why. Revision 2 (2026-10-11), written
 against `b4f5d3b`. It replaces revision 1 (2026-09-25), which treated O1 as
 "thread the scan" and called that HySortK integration. Implementation must not
 start until the week-1 gate below is green.
