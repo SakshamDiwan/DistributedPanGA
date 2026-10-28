@@ -2,7 +2,7 @@
 """Alignment-stage balance report for one pga-mpi-merge run directory.
 
 Reads the "[pr1] rank r:" lines from <dir>/merge.err and the per-task records
-in <dir>/pairs.rank*.tsv (one row per align_contigs call: type, anchor,
+in <dir>/pairs.rank*.tsv (written only when the run had PGA_PAIR_TASKS=1) (one row per align_contigs call: type, anchor,
 partner, seeds, seconds, nhits, nlass) and prints:
 
   1. per-rank work and time, with max/mean imbalance;
@@ -76,9 +76,19 @@ def ranks(xs):
     return r
 
 
+def pearson(xs, ys):
+    n = len(xs)
+    if n < 2:
+        return float("nan")
+    mx, my = mean(xs), mean(ys)
+    sxx = sum((x - mx) ** 2 for x in xs)
+    syy = sum((y - my) ** 2 for y in ys)
+    sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    return sxy / math.sqrt(sxx * syy) if sxx > 0 and syy > 0 else float("nan")
+
+
 def spearman(xs, ys):
-    _, _, r2 = linfit(ranks(xs), ranks(ys))
-    return math.sqrt(r2) if r2 == r2 else float("nan")
+    return pearson(ranks(xs), ranks(ys))   # signed
 
 
 def lpt(costs, true_times, nbins):
@@ -133,6 +143,9 @@ def diagnose(tasks, feats, P):
          "nlass (after)": num("nlass"), "nlcov (after)": num("nlcov"),
          "nhits (after)": num("nhits")}
     keep = [i for i in range(len(secs)) if secs[i] > 0 and F["seeds"][i] > 0]
+    if len(keep) < 2:
+        print("too few tasks with non-zero time and seeds; section 4 skipped")
+        return
     ly = [math.log(secs[i]) for i in keep]
     print("%-15s %8s %9s %10s" % ("feature", "R^2", "spearman", "R^2(log)"))
     for name, xs in F.items():
@@ -210,6 +223,8 @@ def main():
     feats = []          # dict of all columns per task, aligned with tasks
     for path in sorted(glob.glob(os.path.join(d, "pairs.rank*.tsv"))):
         r = int(re.search(r"pairs\.rank(\d+)\.tsv", path).group(1))
+        if r not in ranks_kv:           # leftover file from an earlier, larger run
+            continue
         with open(path) as f:
             cols = next(f).rstrip("\n").split("\t")
             for line in f:
@@ -231,7 +246,7 @@ def main():
         tsk = [t for t in tasks if t[0] == r]
         task_seeds = sum(t[4] for t in tsk)
         task_s = sum(t[5] for t in tsk)
-        if task_seeds != seeds:
+        if tasks and task_seeds != seeds:
             print("  INVARIANT FAILED rank %d: task seeds %d != seeds_n+seeds_c %d"
                   % (r, task_seeds, seeds))
             ok = False
@@ -247,6 +262,13 @@ def main():
         print("%4d %12d %9.3f %9.3f %11.3f %12.3f %9.3f %13.3f" % ((r,) + row))
     print("max/mean " + " ".join(
         "%s=%.3f" % (k, imbalance(cols[k])) for k in hdr[1:]))
+
+    if not tasks:
+        print("\nno pairs.rank*.tsv for these ranks (run with PGA_PAIR_TASKS=1); "
+              "sections 2-3 skipped")
+        if not ok:
+            sys.exit(1)
+        return
 
     print("\n== 2. does seed count predict time? ==")
     xs = [t[4] for t in tasks]
@@ -280,6 +302,9 @@ def main():
                         ("single task", [[t[4], t[5]] for t in tasks])):
         seeds = [u[0] for u in units]
         times = [u[1] for u in units]
+        if sum(times) <= 0:
+            print("  %-15s all task times are 0; skipped" % name)
+            continue
         oracle = max(lpt(times, times, P))
         byseed = max(lpt([float(s) for s in seeds], times, P))
         print("  %-15s units=%6d  LPT(true time) max=%.3f s (%.3f x mean)   "

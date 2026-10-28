@@ -83,6 +83,10 @@ void chunked_alltoallv(const int64_t *send_bytes, const int64_t *recv_bytes,
     int n;
     MPI_Comm_size(comm, &n);
 
+    // Every rank must take the same path with the same cap, so agree on one
+    // budget even if PGA_EXCHANGE_ROUND_BYTES differs between ranks.
+    MPI_Allreduce(MPI_IN_PLACE, &budget, 1, MPI_INT64_T, MPI_MIN, comm);
+
     int64_t *sprefix = malloc(n * sizeof(int64_t));
     int64_t *rprefix = malloc(n * sizeof(int64_t));
     int *scounts = malloc(n * sizeof(int)), *sdispls = malloc(n * sizeof(int));

@@ -175,6 +175,12 @@ static char *make_temp_dir_for_rank(int rank)
     char tmpl[1024];
     const char *base = getenv("PGA_SCRATCH_DIR");
     if (base == NULL || base[0] == '\0') base = "/tmp";
+    // Scratch file paths are built into 1024-byte buffers further on; refuse a
+    // base long enough to be truncated anywhere rather than truncate silently.
+    if (strlen(base) > 512) {
+        fprintf(stderr, "rank %d: PGA_SCRATCH_DIR is longer than 512 characters\n", rank);
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
     snprintf(tmpl, sizeof(tmpl), "%s/pga-mpi-merge-r%d-XXXXXX", base, rank);
     char *dir = mkdtemp(tmpl);
     if (dir == NULL) { perror("mkdtemp"); MPI_Abort(MPI_COMM_WORLD, 1); }
@@ -640,16 +646,21 @@ int main(int argc, char *argv[])
     // pair_sort_search uses NPARTS=1, so it only looks at N_Units[0] and
     // C_Units[0] — exactly the slots we filled with received bytes.
     fprintf(stderr, "[merge] rank %d: starting pair_sort_search\n", my_rank);
-    char task_path[64];
-    snprintf(task_path, sizeof(task_path), "pairs.rank%d.tsv", my_rank);
-    Pair_Task_File = fopen(task_path, "w");
-    if (Pair_Task_File != NULL) {
-        fprintf(Pair_Task_File, "tid\ttype\tanchor\tpartner\tseeds\tseconds\tnhits\tnlass"
-                                "\tnlive\tnlcov\tndiag\tmaxdiag\talen\tblen\n");
-        Pair_Task_Hook = write_pair_task;
-    } else
-        fprintf(stderr, "rank %d: cannot open %s; per-task records disabled\n",
-                my_rank, task_path);
+    // Per-task records (pairs.rank<r>.tsv in the working directory) only when
+    // PGA_PAIR_TASKS is set to something other than "0"; off by default.
+    const char *pt_env = getenv("PGA_PAIR_TASKS");
+    if (pt_env != NULL && pt_env[0] != '\0' && strcmp(pt_env, "0") != 0) {
+        char task_path[64];
+        snprintf(task_path, sizeof(task_path), "pairs.rank%d.tsv", my_rank);
+        Pair_Task_File = fopen(task_path, "w");
+        if (Pair_Task_File != NULL) {
+            fprintf(Pair_Task_File, "tid\ttype\tanchor\tpartner\tseeds\tseconds\tnhits\tnlass"
+                                    "\tnlive\tnlcov\tndiag\tmaxdiag\talen\tblen\n");
+            Pair_Task_Hook = write_pair_task;
+        } else
+            fprintf(stderr, "rank %d: cannot open %s; per-task records disabled\n",
+                    my_rank, task_path);
+    }
     t0 = now_s();
     pair_sort_search(gdb, gdb);
     double t_pair_search = now_s() - t0;
@@ -772,9 +783,13 @@ cleanup:
     free(RankForPair);
     Close_GDB(gdb);
 
-    char rm_cmd[1024];
-    snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf %s", SORT_PATH);
-    system(rm_cmd);
+    // Remove the scratch directory without a shell: the path may contain
+    // spaces or shell metacharacters now that PGA_SCRATCH_DIR sets its base.
+    char *rm_argv[] = { "rm", "-rf", "--", SORT_PATH, NULL };
+    RunResult rm_res = run_with_timeout(rm_argv, NULL, NULL, 300.0, 10.0);
+    if (rm_res.status != RUN_OK)
+        fprintf(stderr, "rank %d: could not remove scratch directory %s\n",
+                my_rank, SORT_PATH);
 
     free(SORT_PATH);
     free(PAIR_NAME);

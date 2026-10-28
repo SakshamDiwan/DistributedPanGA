@@ -204,4 +204,6 @@ test-mpi:
 	    tests/support/check.c tests/support/rec_build.c tests/support/ref_syncmer.c \
 	    tests/support/synth_gdb.c src/dsort.c src/chunked_exchange.c src/sort.c $(TEST_EXSRCS) \
 	    $(TEST_GDBLIB) lib/MSDsort.c $(LIBS)
+	$(CC) $(TEST_CFLAGS) -o tests/bin/test_chunked_mpi tests/mpi/test_chunked_mpi.c \
+	    src/chunked_exchange.c $(LIBS)
 	bash tests/run_mpi.sh

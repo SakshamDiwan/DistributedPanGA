@@ -25,8 +25,8 @@
 //     what and records would be lost.
 //
 // These functions are pure.  dsort.h includes mpi.h for its prototypes, so the
-// binary is built with mpicc, but nothing here calls MPI: the only MPI call in
-// organize_send_buffer is an MPI_Abort on an overflow path we never trigger.
+// binary is built with mpicc, but nothing here calls MPI (organize_send_buffer
+// now returns int64 counts and has no overflow abort; see R-06).
 // So this binary runs as an ordinary single process, no srun needed.
 
 #include <stdio.h>

@@ -61,7 +61,7 @@ typedef struct {
 void xchg_exchange_sizes(const int64_t *send_bytes, int64_t *recv_bytes, MPI_Comm comm);
 
 // Collective. send_bytes/recv_bytes as from xchg_exchange_sizes; every size
-// must be a multiple of unit. Uses one MPI_Alltoallv when every rank's send
+// must be a multiple of unit. The ranks use the minimum of their budgets. Uses one MPI_Alltoallv when every rank's send
 // and receive totals fit in the budget and both sides are contiguous buffers;
 // otherwise rounds. Aborts the job on allocation or planning failure.
 void chunked_alltoallv(const int64_t *send_bytes, const int64_t *recv_bytes,
