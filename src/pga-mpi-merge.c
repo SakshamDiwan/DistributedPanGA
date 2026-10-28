@@ -148,12 +148,15 @@ static void mem_stage_end(int stage)
 // Per-task alignment records: one line per align_contigs call.
 static FILE *Pair_Task_File = NULL;
 
-static void write_pair_task(int tid, int comp, int anchor, int partner,
-                            int64 nseeds, double seconds, int64 nhits, int64 nlass)
+static void write_pair_task(const PairTaskRecord *r)
 {
-    fprintf(Pair_Task_File, "%d\t%c\t%d\t%d\t%lld\t%.6f\t%lld\t%lld\n",
-            tid, comp ? 'C' : 'N', anchor, partner, (long long) nseeds,
-            seconds, (long long) nhits, (long long) nlass);
+    fprintf(Pair_Task_File,
+            "%d\t%c\t%d\t%d\t%lld\t%.6f\t%lld\t%lld\t%lld\t%lld\t%lld\t%lld\t%lld\t%lld\n",
+            r->tid, r->comp ? 'C' : 'N', r->anchor, r->partner,
+            (long long) r->nseeds, r->seconds, (long long) r->nhits,
+            (long long) r->nlass, (long long) r->nlive, (long long) r->nlcov,
+            (long long) r->ndiag, (long long) r->maxdiag,
+            (long long) r->alen, (long long) r->blen);
 }
 
 static double now_s(void)
@@ -163,10 +166,16 @@ static double now_s(void)
     return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
 
+// Per-rank scratch directory for seed and alignment files. Defaults to /tmp,
+// which is memory-backed (tmpfs) on Perlmutter compute nodes; set
+// PGA_SCRATCH_DIR (e.g. a $SCRATCH subdirectory) when the seed files would
+// not fit in node memory alongside the process.
 static char *make_temp_dir_for_rank(int rank)
 {
-    char tmpl[64];
-    snprintf(tmpl, sizeof(tmpl), "/tmp/pga-mpi-merge-r%d-XXXXXX", rank);
+    char tmpl[1024];
+    const char *base = getenv("PGA_SCRATCH_DIR");
+    if (base == NULL || base[0] == '\0') base = "/tmp";
+    snprintf(tmpl, sizeof(tmpl), "%s/pga-mpi-merge-r%d-XXXXXX", base, rank);
     char *dir = mkdtemp(tmpl);
     if (dir == NULL) { perror("mkdtemp"); MPI_Abort(MPI_COMM_WORLD, 1); }
     return strdup(dir);
@@ -635,7 +644,8 @@ int main(int argc, char *argv[])
     snprintf(task_path, sizeof(task_path), "pairs.rank%d.tsv", my_rank);
     Pair_Task_File = fopen(task_path, "w");
     if (Pair_Task_File != NULL) {
-        fprintf(Pair_Task_File, "tid\ttype\tanchor\tpartner\tseeds\tseconds\tnhits\tnlass\n");
+        fprintf(Pair_Task_File, "tid\ttype\tanchor\tpartner\tseeds\tseconds\tnhits\tnlass"
+                                "\tnlive\tnlcov\tndiag\tmaxdiag\talen\tblen\n");
         Pair_Task_Hook = write_pair_task;
     } else
         fprintf(stderr, "rank %d: cannot open %s; per-task records disabled\n",
