@@ -5,6 +5,7 @@ run_pr1() {
   local label=$1 BIN=$2 STM=$3 GOLD=$4 N=$5 D=$6
   rm -rf "$D"; mkdir -p "$D"; cd "$D" || return 1
   local t0=$(date +%s.%N)
+  export PGA_PAIR_TASKS=${PGA_PAIR_TASKS:-1}   # per-task records are opt-in since review
   srun -t ${RUN_LIMIT_MIN:-15} -n "$N" -c 16 --cpu-bind=cores "$HOME/pga-jobs/week1/pga_w1_rankwrap.sh" "$BIN" "$STM" > merge.out 2> merge.err
   local rc=$?
   local wall=$(echo "$(date +%s.%N) - $t0" | bc)

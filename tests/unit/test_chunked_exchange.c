@@ -12,8 +12,8 @@
 // The planner is MPI-free, so this tests multi-gigabyte sizes without
 // allocating them, and then simulates a whole multi-rank exchange in-process to
 // show the chunked result is byte-identical to one unbounded Alltoallv.
-// The MPI path itself is exercised by the e2e/stage-2 runs with a tiny
-// PGA_EXCHANGE_ROUND_BYTES, which forces many rounds.
+// The real MPI path (staging copies, file streaming, rank agreement) is tested
+// by tests/mpi/test_chunked_mpi.c in make test-mpi.
 
 #include <limits.h>
 #include <stdint.h>

@@ -30,6 +30,15 @@ Merge in order: #9 → #10 → #11 → this.
 
 - Build and run under `module load cpu; module unload darshan` with `cc`
   (`build.md`).
+- Run-time switches:
+  - `PGA_PAIR_TASKS=1` writes the per-task alignment records
+    (`pairs.rank*.tsv`); off by default.
+  - `PGA_MEM_STAGE_RESET=0` keeps `/usr/bin/time`/`sacct` peak memory valid.
+  - `PGA_EXCHANGE_ROUND_BYTES` sets the exchange round budget (default 1 GiB;
+    the ranks use the minimum).
+  - `PGA_SCRATCH_DIR` sets the scratch base (default `/tmp`, max 512
+    characters).
+  - `PGA_ALNTOPAF_TIMEOUT` sets the converter time limit (default 600 s).
 - FastGA tools: `~/FASTGA` (`178afcb`).
 - Datasets with FastGA gold: `$SCRATCH/pga-fixtures/`, with a `MANIFEST.txt`
   each. yeast7 is also symlinked from `tests/fixtures/`.

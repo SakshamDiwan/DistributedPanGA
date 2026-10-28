@@ -27,7 +27,7 @@ Current results live in `tests/RESULTS.md`. Summary: **42,471 checks,
 | Real MPI | M-01…M-06 | `test_stage2` | written; needs an allocation (world=1 smoke-tested) |
 | Regression | R-02 | `test_exchange_plan` | **fixed**, markers removed |
 | Regression | R-05 | `test_run_cmd` | **fixed**, passing |
-| Regression | R-06 | `test_chunked_exchange` | **fixed**, passing |
+| Regression | R-06 | `test_chunked_exchange`, `test_chunked_mpi` (MPI tier) | **fixed**, passing |
 | Regressions | R-03, R-04 | — | done, **xfail** (4 + 1 assertions) |
 | Regression | R-01 | `test_stage2` | written; needs an allocation |
 | End-to-end | Z-01, Z-02 | — | blocked: no fixtures, no FastGA tools |
@@ -369,8 +369,21 @@ exits.
   an unbounded Alltoallv;
 - environment parsing.
 
-The MPI path is exercised with a tiny `PGA_EXCHANGE_ROUND_BYTES`
-(small6 at 4096 B: 140 stage-2 rounds, raw PAF identical).
+**MPI tier** (`test_chunked_mpi`, run by `make test-mpi` at every world
+size):
+- calls the real `chunked_alltoallv` and compares it with one plain
+  `MPI_Alltoallv`;
+- sources and sinks: memory buffers, memory callbacks, and files through
+  `pread`/`pwrite` (the seed-streaming path);
+- record sizes 16 and 9;
+- budgets from one record per peer (hundreds of rounds) to the default
+  (direct path);
+- a different budget on every rank: the ranks must agree on the minimum.
+  That agreement was added after review: per-rank budgets could otherwise
+  pick different paths and mismatch collectives.
+
+Also exercised end to end with a tiny `PGA_EXCHANGE_ROUND_BYTES` (small6 at
+4096 B: 140 stage-2 rounds, raw PAF identical).
 
 ### R-03 · Position field representability — **confirmed empirically**
 
