@@ -65,7 +65,9 @@ Merge in order: #9 → #10 → #11 → this.
   - primates4: N = 4–16;
   - primates14: N = 16, and 32 on 2 nodes.
 - **Test suites:** unit 44,231 checks plus ASan, and the MPI tier, on the
-  #10/#11 code.
+  #10/#11 code. On `followup/post-o1`: `make test` passes and the MPI tier
+  passes at N = 1, 2, 3, 4, 8 with M-06 comparing all digests (job 60448488,
+  `TMPDIR=$SCRATCH/tmp`).
 - **Jobs:** 59712760, 59713118, 59715282, 59717508, 59717520. Results are in
   `pr1-results.md`, `pr2-results.md` and `decision-gate-{1,2}.md`.
 
@@ -84,9 +86,13 @@ Merge in order: #9 → #10 → #11 → this.
   - script portability;
   - `Read_GDB` error check never fires (it returns 1, callers test `< 0`);
   - the CSV `total_s` is a sum of per-stage maxima.
+- **M-06 can pass vacuously:** `tests/run_mpi.sh` skips missing digests and
+  still prints "ALL MPI TESTS PASS". Under `salloc <cmd>` the script runs on
+  the login node, so its `/tmp` work dir is invisible to the compute ranks.
+  Fail on a missing digest and default the work dir to `$SCRATCH`.
 
 ## Next action
 
-Merge #9–#11 and this PR. Then decide with the advisor whether to pursue O3,
+#9–#12 are in `main` (via #13–#15). Merge `followup/post-o1`. Then decide with the advisor whether to pursue O3,
 a dynamic alignment-task scheduler with self-first ordering (modelled −33 to
 −42% for the slowest rank at 16–32 ranks), or to stop here.
