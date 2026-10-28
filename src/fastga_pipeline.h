@@ -60,11 +60,28 @@ extern PairSearchStats Pair_Search_Stats;
 
 // Optional per-task hook, called after every align_contigs call in
 // search_seeds: one task = all seeds of one (anchor, partner) contig pair of
-// one type. comp: 0 = N, 1 = C. nhits/nlass are the deltas for this task.
-// NULL (the default) disables it. Must be thread-safe if NTHREADS > 1.
-typedef void (*PairTaskHook)(int tid, int comp, int anchor, int partner,
-                             int64 nseeds, double seconds,
-                             int64 nhits, int64 nlass);
+// one type. NULL (the default) disables it. Must be thread-safe if
+// NTHREADS > 1.
+typedef struct {
+    int    tid;
+    int    comp;        // 0 = N (normal) seeds, 1 = C (complemented)
+    int    anchor;      // contig ids as passed to align_contigs
+    int    partner;
+    int64  alen;        // anchor / partner contig lengths
+    int64  blen;
+    // Known before alignment (from the task's seeds, sorted by diagonal):
+    int64  nseeds;
+    int64  ndiag;       // distinct diagonals among the seeds
+    int64  maxdiag;     // most seeds on any single diagonal
+    // Measured:
+    double seconds;     // align_contigs wall time
+    int64  nhits;       // deltas of the Contig_Bundle counters for this task
+    int64  nlass;       // alignments found
+    int64  nlive;       // non-redundant alignments
+    int64  nlcov;       // bases covered by the non-redundant alignments
+} PairTaskRecord;
+
+typedef void (*PairTaskHook)(const PairTaskRecord *rec);
 extern PairTaskHook Pair_Task_Hook;
 // la_merge is internal to fastga_pipeline.c (called by pair_sort_search).
 

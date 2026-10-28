@@ -22,8 +22,8 @@ LIB_SRCS = lib/GDB.c lib/gene_core.c lib/libfastk.c lib/ONElib.c \
 CORE_SRCS   = src/extract.c src/pack.c src/tables.c src/work_split.c src/record.c
 PHASE1_SRCS = src/pga-extract.c $(CORE_SRCS)
 PHASE2_SRCS = src/pga-sort.c    $(CORE_SRCS) src/sort.c
-PHASE3_STAGE1_SRCS = src/pga-mpi-stage1.c $(CORE_SRCS) src/sort.c src/dsort.c
-PHASE3_SRCS        = src/pga-mpi.c        $(CORE_SRCS) src/sort.c src/dsort.c
+PHASE3_STAGE1_SRCS = src/pga-mpi-stage1.c $(CORE_SRCS) src/sort.c src/dsort.c src/chunked_exchange.c
+PHASE3_SRCS        = src/pga-mpi.c        $(CORE_SRCS) src/sort.c src/dsort.c src/chunked_exchange.c
 
 # Phase 4 single-rank prototype: extract + sort + adapter + FastGA merge/align/PAF.
 # No MPI — does not pull in dsort.c.
@@ -54,7 +54,7 @@ pga-merge: $(PHASE4_SRCS) $(LIB_SRCS)
 
 # Phase 4b — distributed merge + alignment. mpicc, links pga-mpi's stage 2
 # (dsort.c) and pga-merge's adapter + lifted FastGA pipeline.
-PHASE4B_SRCS = src/pga-mpi-merge.c $(CORE_SRCS) src/sort.c src/dsort.c \
+PHASE4B_SRCS = src/pga-mpi-merge.c $(CORE_SRCS) src/sort.c src/dsort.c src/chunked_exchange.c \
                src/kmer_adapter.c src/fastga_pipeline.c src/contig_assignment.c \
                src/seed_exchange.c src/run_cmd.c
 pga-mpi-merge: $(PHASE4B_SRCS) $(LIB_SRCS)
@@ -131,7 +131,8 @@ test-record-split:
 	tests/bin/test_record_split
 
 test: test-record-split test-extract test-extract-window test-lcp-sort \
-      test-dsort test-assign test-adapter test-exchange-plan test-run-cmd
+      test-dsort test-assign test-adapter test-exchange-plan test-run-cmd \
+      test-chunked-exchange
 
 # Slow paths (production allocation growth) plus the sanitizers.
 test-asan:
@@ -148,6 +149,10 @@ test-asan:
 	    -o tests/bin/test_extract_window_asan tests/unit/test_extract_window.c \
 	    $(TEST_SUPPORT) $(TEST_EXSRCS) $(TEST_GDBLIB) $(LIBS)
 	tests/bin/test_extract_window_asan
+	gcc $(TEST_CFLAGS) -fsanitize=address,undefined -O1 -g \
+	    -o tests/bin/test_chunked_exchange_asan tests/unit/test_chunked_exchange.c \
+	    tests/support/check.c src/chunked_exchange.c $(LIBS) $$(cc --cray-print-opts=all 2>/dev/null)
+	tests/bin/test_chunked_exchange_asan
 
 test-clean:
 	rm -rf tests/bin
@@ -157,7 +162,7 @@ test-clean:
 test-dsort:
 	@mkdir -p tests/bin
 	$(CC) $(TEST_CFLAGS) -o tests/bin/test_dsort tests/unit/test_dsort.c \
-	    $(TEST_SUPPORT) src/dsort.c src/sort.c $(TEST_EXSRCS) $(TEST_GDBLIB) \
+	    $(TEST_SUPPORT) src/dsort.c src/chunked_exchange.c src/sort.c $(TEST_EXSRCS) $(TEST_GDBLIB) \
 	    lib/MSDsort.c $(LIBS)
 	tests/bin/test_dsort
 
@@ -181,6 +186,12 @@ test-exchange-plan:
 	    tests/support/check.c src/seed_exchange.c $(LIBS)
 	tests/bin/test_exchange_plan
 
+test-chunked-exchange:
+	@mkdir -p tests/bin
+	$(CC) $(TEST_CFLAGS) -o tests/bin/test_chunked_exchange tests/unit/test_chunked_exchange.c \
+	    tests/support/check.c src/chunked_exchange.c $(LIBS)
+	tests/bin/test_chunked_exchange
+
 test-run-cmd:
 	@mkdir -p tests/bin
 	gcc $(TEST_CFLAGS) -o tests/bin/test_run_cmd tests/unit/test_run_cmd.c \
@@ -191,6 +202,6 @@ test-mpi:
 	@mkdir -p tests/bin
 	$(CC) $(TEST_CFLAGS) -o tests/bin/test_stage2 tests/mpi/test_stage2.c \
 	    tests/support/check.c tests/support/rec_build.c tests/support/ref_syncmer.c \
-	    tests/support/synth_gdb.c src/dsort.c src/sort.c $(TEST_EXSRCS) \
+	    tests/support/synth_gdb.c src/dsort.c src/chunked_exchange.c src/sort.c $(TEST_EXSRCS) \
 	    $(TEST_GDBLIB) lib/MSDsort.c $(LIBS)
 	bash tests/run_mpi.sh

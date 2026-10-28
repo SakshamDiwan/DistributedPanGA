@@ -17,6 +17,12 @@ partner, seeds, seconds, nhits, nlass) and prints:
 Section 3 is a model, not a measurement: it assumes a task takes the same time
 on any rank and ignores everything outside search_seeds.
 
+Section 4 (only if the task files carry the diagnostic columns ndiag, maxdiag,
+nlcov, ...): how well each per-task feature predicts task time, a log-space
+least-squares model on features known before alignment, the most expensive
+tasks with their features, and scheduling bounds that use the best
+pre-alignment predictor and a dynamic queue (model, not measurement).
+
 Exit status 1 if an invariant fails (task seeds != reported seeds per rank).
 Standard library only. Usage: analyze_align_balance.py <run-dir> [--csv out.csv]
 """
@@ -88,6 +94,102 @@ def lpt(costs, true_times, nbins):
     return real
 
 
+def lstsq(rows, ys):
+    """Ordinary least squares via normal equations (small k). Returns coefs."""
+    k = len(rows[0])
+    A = [[sum(r[i] * r[j] for r in rows) for j in range(k)] for i in range(k)]
+    for i in range(1, k):                   # tiny ridge on the slopes for stability
+        A[i][i] *= 1.0 + 1e-9
+    b = [sum(r[i] * y for r, y in zip(rows, ys)) for i in range(k)]
+    for c in range(k):                      # Gauss-Jordan with partial pivoting
+        p = max(range(c, k), key=lambda i: abs(A[i][c]))
+        A[c], A[p] = A[p], A[c]
+        b[c], b[p] = b[p], b[c]
+        if abs(A[c][c]) < 1e-300:
+            return [0.0] * k
+        for i in range(k):
+            if i != c:
+                f = A[i][c] / A[c][c]
+                A[i] = [a - f * x for a, x in zip(A[i], A[c])]
+                b[i] -= f * b[c]
+    return [b[i] / A[i][i] for i in range(k)]
+
+
+def dynamic(order_costs, true_times, P):
+    """List scheduling: tasks in the given order, each to the first free rank."""
+    import heapq
+    h = [0.0] * P
+    for i in sorted(range(len(true_times)), key=lambda i: (-order_costs[i], i)):
+        heapq.heapreplace(h, h[0] + true_times[i])
+    return max(h)
+
+
+def diagnose(tasks, feats, P):
+    print("\n== 4. what predicts task time? (per task; model fits, not runs) ==")
+    secs = [t[5] for t in tasks]
+    num = lambda k: [float(v[k]) for v in feats]
+    F = {"seeds": num("seeds"), "ndiag": num("ndiag"), "maxdiag": num("maxdiag"),
+         "alen*blen": [float(v["alen"]) * float(v["blen"]) for v in feats],
+         "nlass (after)": num("nlass"), "nlcov (after)": num("nlcov"),
+         "nhits (after)": num("nhits")}
+    keep = [i for i in range(len(secs)) if secs[i] > 0 and F["seeds"][i] > 0]
+    ly = [math.log(secs[i]) for i in keep]
+    print("%-15s %8s %9s %10s" % ("feature", "R^2", "spearman", "R^2(log)"))
+    for name, xs in F.items():
+        _, _, r2 = linfit(xs, secs)
+        sp = spearman(xs, secs)
+        lx = [math.log(xs[i] + 1.0) for i in keep]
+        _, _, r2l = linfit(lx, ly)
+        print("%-15s %8.3f %9.3f %10.3f" % (name, r2, sp, r2l))
+
+    # log-space model on pre-alignment features only
+    pre = []
+    for k in ["seeds", "ndiag", "maxdiag", "alen*blen"]:
+        lx = [math.log(F[k][i] + 1.0) for i in keep]
+        if max(lx) - min(lx) > 1e-9:          # constant features make the fit singular
+            pre.append(k)
+    rows = [[1.0] + [math.log(F[k][i] + 1.0) for k in pre] for i in keep]
+    coef = lstsq(rows, ly)
+    pred_l = [sum(c * x for c, x in zip(coef, r)) for r in rows]
+    myl = mean(ly)
+    ss_res = sum((y - p) ** 2 for y, p in zip(ly, pred_l))
+    ss_tot = sum((y - myl) ** 2 for y in ly)
+    print("log-space model on pre-alignment features %s: R^2(log)=%.3f  coefs=%s"
+          % (pre, 1 - ss_res / ss_tot if ss_tot else float("nan"),
+             " ".join("%.3f" % c for c in coef)))
+    pred = [0.0] * len(secs)
+    for i, pl in zip(keep, pred_l):
+        pred[i] = math.exp(pl)
+    _, _, r2p = linfit(pred, secs)
+    print("  -> predicted vs actual seconds: R^2=%.3f spearman=%.3f"
+          % (r2p, spearman(pred, secs)))
+
+    tot = sum(secs) or 1.0
+    order = sorted(range(len(secs)), key=lambda i: -secs[i])
+    print("most expensive tasks:")
+    print("  %5s %4s %6s %6s %10s %8s %8s %10s %7s %12s %10s %10s"
+          % ("share", "type", "anchor", "partn", "seeds", "ndiag", "maxdiag",
+             "secs", "nlass", "nlcov", "alen", "blen"))
+    for i in order[:12]:
+        v = feats[i]
+        print("  %4.1f%% %4s %6s %6s %10s %8s %8s %10.2f %7s %12s %10s %10s"
+              % (100 * secs[i] / tot, v["type"], v["anchor"], v["partner"], v["seeds"],
+                 v["ndiag"], v["maxdiag"], secs[i], v["nlass"], v["nlcov"],
+                 v["alen"], v["blen"]))
+
+    # scheduling bounds at the single-task level (model)
+    m = tot / P
+    est_seeds = F["seeds"]
+    print("scheduling of single tasks on P=%d (slowest rank, x mean %.2f s):" % (P, m))
+    for name, cost in (("true time (oracle)", secs), ("seeds", est_seeds),
+                       ("pre-alignment model", pred)):
+        st = max(lpt(cost, secs, P))
+        dy = dynamic(cost, secs, P)
+        print("  %-20s static LPT %.2f s (%.3fx)   dynamic queue %.2f s (%.3fx)"
+              % (name, st, st / m, dy, dy / m))
+    print("  largest single task %.2f s (floor for any scheduler)" % max(secs))
+
+
 def main():
     if len(sys.argv) < 2:
         sys.exit(__doc__)
@@ -105,13 +207,16 @@ def main():
     P = len(ranks_kv)
 
     tasks = []          # (rank, type, anchor, partner, seeds, secs, nlass)
+    feats = []          # dict of all columns per task, aligned with tasks
     for path in sorted(glob.glob(os.path.join(d, "pairs.rank*.tsv"))):
         r = int(re.search(r"pairs\.rank(\d+)\.tsv", path).group(1))
         with open(path) as f:
-            next(f)
+            cols = next(f).rstrip("\n").split("\t")
             for line in f:
-                tid, typ, a, b, s, t, nh, nl = line.rstrip("\n").split("\t")
-                tasks.append((r, typ, int(a), int(b), int(s), float(t), int(nl)))
+                v = dict(zip(cols, line.rstrip("\n").split("\t")))
+                tasks.append((r, v["type"], int(v["anchor"]), int(v["partner"]),
+                              int(v["seeds"]), float(v["seconds"]), int(v["nlass"])))
+                feats.append(v)
 
     ok = True
     print("run: %s   ranks: %d   tasks: %d" % (d, P, len(tasks)))
@@ -181,6 +286,9 @@ def main():
               "LPT(seeds) max=%.3f s (%.3f x mean)"
               % (name, len(units), oracle, oracle / (sum(times) / P),
                  byseed, byseed / (sum(times) / P)))
+
+    if feats and "maxdiag" in feats[0]:
+        diagnose(tasks, feats, P)
 
     if csv_out:
         with open(csv_out, "w") as f:

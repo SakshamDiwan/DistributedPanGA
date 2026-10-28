@@ -53,14 +53,15 @@ void compute_destination_map(const int64_t *global_counts, int world_size,
 //   world_size       — number of destination slots
 //   send_buf_out     — *send_buf_out set to a freshly malloc'd buffer of
 //                      total local->count records, grouped by destination
-//   send_counts_out  — caller-supplied int[world_size], filled with byte counts
-//   send_displs_out  — caller-supplied int[world_size], filled with byte displs
+//   send_counts_out  — caller-supplied int64_t[world_size], byte counts
+//   send_displs_out  — caller-supplied int64_t[world_size], byte displacements
+//                      (int64: may exceed INT_MAX; see chunked_exchange.h)
 //
 // Caller frees *send_buf_out when done.
 void organize_send_buffer(const RecordBuffer *local, const int *select,
                           int world_size,
                           uint8_t **send_buf_out,
-                          int *send_counts_out, int *send_displs_out);
+                          int64_t *send_counts_out, int64_t *send_displs_out);
 
 // Run the full stage 2 pipeline on this rank.
 // Inputs:
@@ -85,7 +86,9 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm);
 typedef struct {
     double hist_s;        // bucket_local_counts + Allreduce + destination map
     double pack_s;        // organize_send_buffer
-    double exchange_s;    // Alltoall of counts + recv alloc + Alltoallv
+    double exchange_s;    // Alltoall of counts + recv alloc + exchange
+    int64_t exchange_rounds;   // 1 = single Alltoallv; >1 = chunked rounds
+    int64_t exchange_staging;  // staging bytes allocated by the chunked path
     double shuffle_s;     // PGA_PRESORT_SHUFFLE permutation (0 when unset)
     double local_sort_s;  // sort_records + recalc_all_lcps
     double verify_s;      // local/cross-rank checks + seam fixup

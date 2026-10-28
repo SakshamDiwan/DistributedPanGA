@@ -27,6 +27,7 @@ Current results live in `tests/RESULTS.md`. Summary: **42,471 checks,
 | Real MPI | M-01…M-06 | `test_stage2` | written; needs an allocation (world=1 smoke-tested) |
 | Regression | R-02 | `test_exchange_plan` | **fixed**, markers removed |
 | Regression | R-05 | `test_run_cmd` | **fixed**, passing |
+| Regression | R-06 | `test_chunked_exchange` | **fixed**, passing |
 | Regressions | R-03, R-04 | — | done, **xfail** (4 + 1 assertions) |
 | Regression | R-01 | `test_stage2` | written; needs an allocation |
 | End-to-end | Z-01, Z-02 | — | blocked: no fixtures, no FastGA tools |
@@ -331,6 +332,45 @@ the env parsing.
 process in that state cannot be killed by anyone, so the node may still need
 Slurm cleanup. The fix guarantees only that our job reports the failure and
 exits.
+
+### R-06 · Exchanges above INT_MAX bytes — **FIXED**
+
+**Was:**
+- `run_stage2` and `redistribute_seeds` each used one `MPI_Alltoallv` with
+  int counts and displacements. They aborted when a rank sent or received
+  more than `INT_MAX` bytes.
+- That happens even at one rank: stage 2 always exchanges.
+- `primates4.chr6` (~8 GB of records, ~23 GB of seeds) could not run at
+  small rank counts.
+
+**Fixed** by `chunked_alltoallv` (`src/chunked_exchange.c`):
+- Sizes are exchanged as int64.
+- If every rank's send and receive totals fit `PGA_EXCHANGE_ROUND_BYTES`
+  (default 1 GiB), a single `MPI_Alltoallv` is used, exactly as before.
+- Otherwise the exchange runs in rounds of at most `cap` bytes per peer.
+  `cap` is a multiple of the record size, and a round's packed
+  displacements stay ≤ `INT_MAX`.
+- Each chunk is written at its final offset, so the result is
+  byte-identical.
+- Seeds stream file → file (`pread`/`pwrite`), so the former full send and
+  receive buffers (2× the seed bytes) are gone. Staging is bounded by the
+  budget.
+- MPI-4 `MPI_Alltoallv_c` also works on Cray MPICH 9.1 (probe: one call,
+  2 GiB + 16 bytes to self). It was not chosen: it needs MPI-4 and keeps both
+  full buffers resident.
+
+**Test** (`test_chunked_exchange`, MPI-free):
+- cap bounds;
+- round plans for 3–23 GiB synthetic sizes (no allocation), including a
+  10 GiB-to-one-peer skew and 9-byte seeds: no split record, every round's
+  total ≤ `INT_MAX`, chunks contiguous, totals exact;
+- bad sizes rejected;
+- an in-process multi-rank simulation of the round plan, byte-identical to
+  an unbounded Alltoallv;
+- environment parsing.
+
+The MPI path is exercised with a tiny `PGA_EXCHANGE_ROUND_BYTES`
+(small6 at 4096 B: 140 stage-2 rounds, raw PAF identical).
 
 ### R-03 · Position field representability — **confirmed empirically**
 
