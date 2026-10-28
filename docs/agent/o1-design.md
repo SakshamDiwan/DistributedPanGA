@@ -1,6 +1,6 @@
 # O1 design — HySortK-informed extraction and send-path redesign
 
-Status: **design only, nothing implemented.** Revision 2 (2026-10-11), written
+Status: **complete (O1 closed 2026-10-12).** See `o1-final-report.md` for what was built, what was dropped and why. Revision 2 (2026-10-11), written
 against `b4f5d3b`. It replaces revision 1 (2026-09-25), which treated O1 as
 "thread the scan" and called that HySortK integration. Implementation must not
 start until the week-1 gate below is green.
@@ -39,9 +39,7 @@ PAF `cmp` against gold at N = 1/2/4/8 (job 58873975).
 
 ## 1. What HySortK actually does (commit `1542fe3`, `icpp2024`)
 
-HySortK has **no LICENSE file**, so reuse is limited to ideas: no copied code
-until licensing is clarified with the authors. References are to
-`src/kmerops.cpp` unless noted.
+References are to `src/kmerops.cpp` unless noted.
 
 - **Pipeline** (`kmer_count`, `src/hysortk.cpp`): `prepare_supermer` →
   `exchange_supermer` → `filter_kmer`. Parsing does *not* overlap sending.
@@ -380,5 +378,3 @@ Candidate designs:
 5. O1c is the HySortK contribution: destination-aware staging with a fused
    histogram, ~2N peak memory. Report memory and runtime separately.
 6. O1d is deferred to O2a and multi-node measurements.
-
-HySortK's *own* source is not linked or copied anywhere (no licence).
