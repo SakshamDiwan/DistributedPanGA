@@ -29,7 +29,7 @@ typedef struct {
 } Post_List;
 
 // Per-thread / per-part IO buffer for seed pair files. Allocated by the
-// driver (pga-merge.c), consumed by self_adaptamer_merge and pair_sort_search.
+// driver (pga-mpi-merge.c), consumed by self_adaptamer_merge and pair_sort_search.
 typedef struct {
     uint8  *bufr;
     uint8  *btop;

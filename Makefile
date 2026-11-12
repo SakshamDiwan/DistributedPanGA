@@ -25,12 +25,7 @@ PHASE2_SRCS = src/pga-sort.c    $(CORE_SRCS) src/sort.c
 PHASE3_STAGE1_SRCS = src/pga-mpi-stage1.c $(CORE_SRCS) src/sort.c src/dsort.c src/chunked_exchange.c
 PHASE3_SRCS        = src/pga-mpi.c        $(CORE_SRCS) src/sort.c src/dsort.c src/chunked_exchange.c
 
-# Phase 4 single-rank prototype: extract + sort + adapter + FastGA merge/align/PAF.
-# No MPI — does not pull in dsort.c.
-PHASE4_SRCS        = src/pga-merge.c $(CORE_SRCS) src/sort.c \
-                     src/kmer_adapter.c src/fastga_pipeline.c src/run_cmd.c
-
-all: pga-extract pga-sort pga-mpi-stage1 pga-mpi pga-merge pga-mpi-merge
+all: pga-extract pga-sort pga-mpi-stage1 pga-mpi pga-mpi-merge
 
 # Phase 1 single-process extractor. Uses gcc rather than mpicc since it has no MPI dependency.
 pga-extract: $(PHASE1_SRCS) $(LIB_SRCS)
@@ -48,12 +43,8 @@ pga-mpi-stage1: $(PHASE3_STAGE1_SRCS) $(LIB_SRCS)
 pga-mpi: $(PHASE3_SRCS) $(LIB_SRCS)
 	$(CC) $(CFLAGS) -o pga-mpi $(PHASE3_SRCS) $(LIB_SRCS) $(LIBS)
 
-# Phase 4 — single-rank adapter prototype. gcc, no MPI.
-pga-merge: $(PHASE4_SRCS) $(LIB_SRCS)
-	gcc $(CFLAGS) -o pga-merge $(PHASE4_SRCS) $(LIB_SRCS) $(LIBS)
-
 # Phase 4b — distributed merge + alignment. mpicc, links pga-mpi's stage 2
-# (dsort.c) and pga-merge's adapter + lifted FastGA pipeline.
+# (dsort.c), the k-mer adapter and the lifted FastGA pipeline.
 PHASE4B_SRCS = src/pga-mpi-merge.c $(CORE_SRCS) src/sort.c src/dsort.c src/chunked_exchange.c \
                src/kmer_adapter.c src/fastga_pipeline.c src/contig_assignment.c \
                src/seed_exchange.c src/run_cmd.c
@@ -88,7 +79,7 @@ verify-phase3-stage2-lcp:
 	bash scripts/verify_phase3_stage2_lcp.sh
 
 clean:
-	rm -f pga-extract pga-sort pga-mpi-stage1 pga-mpi pga-merge pga-mpi-merge
+	rm -f pga-extract pga-sort pga-mpi-stage1 pga-mpi pga-mpi-merge
 
 # ---------------------------------------------------------------------------
 # Tests.  See tests/CATALOG.md for the catalog (test IDs are cited in the sources).

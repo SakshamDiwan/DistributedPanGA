@@ -68,7 +68,7 @@ extern int rmsd_sort(uint8 *array, int64 nelem, int rsize, int ksize,
 #define Current_Entry(T, ent)  adapter_Current_Entry((KmerStreamAdapter *)(T), (ent))
 
 // ============================================================================
-// Externs (set by pga-merge.c)
+// Externs (set by pga-mpi-merge.c)
 // ============================================================================
 
 extern int    NTHREADS;

@@ -12,7 +12,7 @@
 //   8. la_merge → ALNtoPAF.
 //
 // With world_size=1 the routing collapses to "everyone routes to rank 0,"
-// which IS rank 0, and the output is byte-identical to single-rank pga-merge.
+// which IS rank 0, and the output must match FastGA's gold output.
 //
 // Usage:  mpirun -n N pga-mpi-merge <gdb-stem>
 
@@ -474,7 +474,7 @@ int main(int argc, char *argv[])
     record_buffer_free(&recv);
     mem_stage_end(MEM_ADAPTER);
 
-    // Set FastGA externs (mirrors pga-merge.c).
+    // Set FastGA externs.
     KMER   = T1.kmer;
     IBYTE  = P1.pbyte;
     ICONT  = P1.cbyte;
