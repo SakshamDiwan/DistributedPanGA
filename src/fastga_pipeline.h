@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "GDB.h"
 #include "libfastk.h"
+#include "seed_buffer.h"
 
 // Post_List must match FastGA.c's definition (field order matters)
 typedef struct {
@@ -28,8 +29,8 @@ typedef struct {
     int     clone;
 } Post_List;
 
-// Per-thread / per-part IO buffer for seed pair files. Allocated by the
-// driver (pga-mpi-merge.c), consumed by self_adaptamer_merge and pair_sort_search.
+// Per-thread / per-part IO buffer for per-contig seed counts (buck) and
+// alignment file descriptors. Allocated by pga-mpi-merge.c.
 typedef struct {
     uint8  *bufr;
     uint8  *btop;
@@ -47,7 +48,7 @@ void pair_sort_search(GDB *gdb1, GDB *gdb2);
 // Phase times of the last pair_sort_search call, in seconds; index 0 = normal
 // (N) seeds, 1 = complemented (C) seeds. Written by thread 0 only.
 typedef struct {
-    double reimport_s[2];   // reimport_thread: seed file -> sort array
+    double reimport_s[2];   // reimport_thread: seed buffer -> sort array
     double sort_s[2];       // rmsd_sort
     double search_s[2];     // search_seeds (all align_contigs calls)
     double la_sort_s;

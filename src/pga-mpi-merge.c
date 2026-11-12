@@ -88,6 +88,13 @@ char   *ALGN_PAIR = NULL;
 IOBuffer *N_Units = NULL;
 IOBuffer *C_Units = NULL;
 
+SeedUnit *N_SeedUnits = NULL;
+SeedUnit *C_SeedUnits = NULL;
+uint8    *Recv_N_Data = NULL;
+uint8    *Recv_C_Data = NULL;
+int64     Recv_N_Len  = 0;
+int64     Recv_C_Len  = 0;
+
 // Phase 4b routing globals (consumed by fastga_pipeline.c).
 int8_t *RankForPair = NULL;
 int     NUNITS      = 1;
@@ -166,10 +173,10 @@ static double now_s(void)
     return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
 
-// Per-rank scratch directory for seed and alignment files. Defaults to /tmp,
-// which is memory-backed (tmpfs) on Perlmutter compute nodes; set
-// PGA_SCRATCH_DIR (e.g. a $SCRATCH subdirectory) when the seed files would
-// not fit in node memory alongside the process.
+// Per-rank scratch directory for alignment files (.las, .1aln). Defaults to
+// /tmp, which is memory-backed (tmpfs) on Perlmutter compute nodes; set
+// PGA_SCRATCH_DIR (e.g. a $SCRATCH subdirectory) when those files would not
+// fit in node memory alongside the process.
 static char *make_temp_dir_for_rank(int rank)
 {
     char tmpl[1024];
@@ -187,187 +194,90 @@ static char *make_temp_dir_for_rank(int rank)
     return strdup(dir);
 }
 
-// Read entire file into a freshly malloc'd buffer.
-// Caller frees. Returns size in bytes; out_buf gets the buffer pointer.
-static int64 read_file_all(int fd, uint8 **out_buf)
+// Fill callback for chunked_alltoallv: copy from per-dest SeedUnit buffers.
+typedef struct { SeedUnit *units; } SeedMemSource;
+
+static void seed_mem_fill(void *ctx, int peer, int64_t off, int64_t len, uint8_t *dst)
 {
-    off_t size = lseek(fd, 0, SEEK_END);
-    if (size < 0) { perror("lseek"); MPI_Abort(MPI_COMM_WORLD, 1); }
-    if (lseek(fd, 0, SEEK_SET) < 0) { perror("lseek"); MPI_Abort(MPI_COMM_WORLD, 1); }
-    uint8 *buf = malloc(size > 0 ? (size_t) size : 1);
-    if (buf == NULL) { perror("malloc"); MPI_Abort(MPI_COMM_WORLD, 1); }
-    int64 total = 0;
-    while (total < size) {
-        ssize_t n = read(fd, buf + total, size - total);
-        if (n <= 0) { perror("read"); MPI_Abort(MPI_COMM_WORLD, 1); }
-        total += n;
-    }
-    *out_buf = buf;
-    return size;
+    SeedMemSource *s = (SeedMemSource *) ctx;
+    memcpy(dst, s->units[peer].data + off, len);
 }
 
-// Redistribute seeds for a single seed type (N or C).
-//
-// Each destination's seeds are in its own unit file; the incoming seeds are
-// written to one combined file in source-rank order (identical bytes to the
-// former single MPI_Alltoallv). The exchange streams file -> file in bounded
-// rounds (chunked_alltoallv), so neither a full send buffer nor a full receive
-// buffer is allocated, and per-rank sizes above INT_MAX are fine.
-//
-// Inputs:
-//   units       — N_Units or C_Units, length world_size (one outgoing file per dest)
-//   world_size  — # MPI ranks
-//   tag         — 'N' or 'C', for diagnostics
-//   seed_bytes  — bytes per seed record (every chunk holds whole seeds)
-//   sort_path   — scratch dir
-//   pair_name   — scratch file basename
-//   out_path    — caller-provided buffer; receives path of fresh local file
-//   sent_out    — receives total bytes this rank sent (incl. to itself)
-//   xst_out     — receives exchange statistics (rounds, staging bytes)
-// Returns:
-//   total bytes received (also = size of file at *out_path).
-//
-// Side effect: closes/replaces units[0].file with the combined incoming file.
-
-typedef struct { IOBuffer *units; char tag; } SeedSource;
-typedef struct { int fd; const int64_t *prefix; char tag; } SeedSink;
-
-static void seed_fill(void *ctx, int peer, int64_t off, int64_t len, uint8_t *dst)
+// In-memory seed exchange for one type (N or C).
+// Returns a freshly malloc'd buffer with all received seeds in source-rank
+// order (byte-identical to the old file-based exchange). Frees the send
+// units before returning (memory rule 2).
+static uint8 *redistribute_seeds_mem(SeedUnit *units, int world_size,
+                                     int seed_bytes,
+                                     int64 *recv_total_out,
+                                     int64 *sent_out, XchgStats *xst_out)
 {
-    SeedSource *s = (SeedSource *) ctx;
-    int64_t got = 0;
-    while (got < len) {
-        ssize_t n = pread(s->units[peer].file, dst + got, len - got, off + got);
-        if (n <= 0) { perror("pread seeds"); MPI_Abort(MPI_COMM_WORLD, 1); }
-        got += n;
-    }
-}
-
-static void seed_drain(void *ctx, int peer, int64_t off, int64_t len, const uint8_t *src)
-{
-    SeedSink *s = (SeedSink *) ctx;
-    int64_t put = 0;
-    while (put < len) {
-        ssize_t n = pwrite(s->fd, src + put, len - put, s->prefix[peer] + off + put);
-        if (n <= 0) { perror("pwrite combined"); MPI_Abort(MPI_COMM_WORLD, 1); }
-        put += n;
-    }
-}
-
-static int64 redistribute_seeds(IOBuffer *units, int world_size, char tag,
-                                int seed_bytes,
-                                const char *sort_path, const char *pair_name,
-                                char *out_path, size_t out_path_len,
-                                int64 *sent_out, XchgStats *xst_out)
-{
-    memset(xst_out, 0, sizeof(*xst_out));
-
-    // Single-rank shortcut: nothing to exchange. units[0].file already holds
-    // all our seeds, since RankForPair routed every pair to rank 0 = ourselves.
+    // 1-rank shortcut: no exchange needed, take ownership of the buffer.
     if (world_size == 1) {
-        off_t size = lseek(units[0].file, 0, SEEK_END);
-        if (lseek(units[0].file, 0, SEEK_SET) < 0) {
-            perror("lseek"); MPI_Abort(MPI_COMM_WORLD, 1);
-        }
-        snprintf(out_path, out_path_len, "%s/%s.0.%c",
-                 sort_path, pair_name, tag);
-        *sent_out = size;
-        return size;
+        memset(xst_out, 0, sizeof(*xst_out));
+        *sent_out = units[0].len;
+        *recv_total_out = units[0].len;
+        uint8 *buf = units[0].data;
+        units[0].data = NULL;
+        units[0].len = units[0].cap = 0;
+        return buf;
     }
 
-    int64_t *send_sizes = calloc(world_size, sizeof(int64_t));
-    int64_t *recv_sizes = calloc(world_size, sizeof(int64_t));
-    int64_t *recv_prefix = calloc(world_size, sizeof(int64_t));
-    if (!send_sizes || !recv_sizes || !recv_prefix) {
-        fprintf(stderr, "redistribute_seeds: out of memory\n"); MPI_Abort(MPI_COMM_WORLD, 1);
+    int64_t *send_sizes  = calloc(world_size, sizeof(int64_t));
+    int64_t *recv_sizes  = calloc(world_size, sizeof(int64_t));
+    if (!send_sizes || !recv_sizes) {
+        fprintf(stderr, "redistribute_seeds_mem: out of memory\n");
+        MPI_Abort(MPI_COMM_WORLD, 1);
     }
     int64 send_total = 0;
     for (int r = 0; r < world_size; r++) {
-        send_sizes[r] = lseek(units[r].file, 0, SEEK_END);
-        if (send_sizes[r] < 0) { perror("lseek"); MPI_Abort(MPI_COMM_WORLD, 1); }
+        send_sizes[r] = units[r].len;
         send_total += send_sizes[r];
     }
     *sent_out = send_total;
 
     xchg_exchange_sizes(send_sizes, recv_sizes, MPI_COMM_WORLD);
     int64 recv_total = 0;
-    for (int r = 0; r < world_size; r++) {
-        recv_prefix[r] = recv_total;
+    for (int r = 0; r < world_size; r++)
         recv_total += recv_sizes[r];
+    *recv_total_out = recv_total;
+
+    uint8 *recv_buf = malloc(recv_total > 0 ? (size_t) recv_total : 1);
+    if (recv_buf == NULL) {
+        int rank;
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        fprintf(stderr, "[rank %d] redistribute_seeds_mem: malloc(%lld) failed\n",
+                rank, (long long) recv_total);
+        MPI_Abort(MPI_COMM_WORLD, 1);
     }
 
-    snprintf(out_path, out_path_len, "%s/%s.combined.%c",
-             sort_path, pair_name, tag);
-    int fd = open(out_path, O_RDWR | O_CREAT | O_TRUNC, 0666);
-    if (fd < 0) { perror("open combined"); MPI_Abort(MPI_COMM_WORLD, 1); }
-
-    SeedSource sctx = { units, tag };
-    SeedSink   dctx = { fd, recv_prefix, tag };
-    XchgSource xsrc = { NULL, seed_fill, &sctx };
-    XchgSink   xdst = { NULL, seed_drain, &dctx };
-    chunked_alltoallv(send_sizes, recv_sizes, seed_bytes, xchg_round_budget_from_env(),
+    SeedMemSource sctx = { units };
+    XchgSource xsrc = { NULL, seed_mem_fill, &sctx };
+    XchgSink   xdst = { recv_buf, NULL, NULL };
+    chunked_alltoallv(send_sizes, recv_sizes, seed_bytes,
+                      xchg_round_budget_from_env(),
                       &xsrc, &xdst, MPI_COMM_WORLD, xst_out);
 
-    for (int r = 0; r < world_size; r++) {
-        close(units[r].file);
-        char path[1024];
-        snprintf(path, sizeof(path), "%s/%s.%d.%c",
-                 sort_path, pair_name, units[r].inum, tag);
-        unlink(path);
-    }
+    for (int r = 0; r < world_size; r++)
+        seed_unit_free(&units[r]);
+
     free(send_sizes);
     free(recv_sizes);
-    free(recv_prefix);
-
-    units[0].file = fd;
-    units[0].inum = 0;
-    return recv_total;
+    return recv_buf;
 }
 
-// Recompute units[0].buck[icont] = number of seeds (per A-contig) in the
-// combined file at units[0].file. Needed because pair_sort_search consumes
-// these counts and after redistribution they no longer match what merge
-// originally wrote.
-static void recompute_buck(IOBuffer *unit, int ibyte, int ipost, int icont_bytes)
+// Count per-A-contig seeds in a received buffer (replaces recompute_buck).
+static void count_buck(int64 *buck, const uint8 *buf, int64 total, int seed_bytes)
 {
-    int fd = unit->file;
-    off_t size = lseek(fd, 0, SEEK_END);
-    if (lseek(fd, 0, SEEK_SET) < 0) { perror("lseek recompute"); MPI_Abort(MPI_COMM_WORLD, 1); }
-
-    // Each seed: 1 byte LCP + IBYTE pay1 + JBYTE p
-    // Within pay1: IPOST bytes pos + ICONT bytes contig.  The icont byte
-    // is at offset 1 + IPOST inside the seed record.
-    int seed_bytes = ibyte + ibyte + 1;   // (IBYTE + JBYTE + 1), since IBYTE==JBYTE for self
-    int icont_off  = 1 + ipost;
-
-    bzero(unit->buck, sizeof(int64) * NCONTS);
-
-    uint8 *buf = malloc(1 << 20);
-    if (buf == NULL) { perror("malloc recompute buf"); MPI_Abort(MPI_COMM_WORLD, 1); }
-    int64 partial = 0;
-    while (1) {
-        ssize_t n = read(fd, buf + partial, (1 << 20) - partial);
-        if (n < 0) { perror("read recompute"); MPI_Abort(MPI_COMM_WORLD, 1); }
-        if (n == 0 && partial == 0) break;
-        int64 avail = partial + n;
-        int64 i = 0;
-        while (i + seed_bytes <= avail) {
-            int64 icont = 0;
-            memcpy(&icont, buf + i + icont_off, icont_bytes);
-            // strip sign bit (it lives in the high bit of the cont field)
-            icont &= (((int64) 1 << (8 * icont_bytes - 1)) - 1);
-            unit->buck[icont]++;
-            i += seed_bytes;
-        }
-        partial = avail - i;
-        if (partial > 0) memmove(buf, buf + i, partial);
-        if (n == 0) break;
+    int   icont_off = 1 + IPOST;
+    int64 mask      = ((int64) 1 << (8 * ICONT - 1)) - 1;
+    bzero(buck, sizeof(int64) * NCONTS);
+    for (int64 i = 0; i < total; i += seed_bytes) {
+        int64 icont = 0;
+        memcpy(&icont, buf + i + icont_off, ICONT);
+        icont &= mask;
+        buck[icont]++;
     }
-    free(buf);
-    (void) size;
-
-    // Rewind so reimport_thread reads from start.
-    if (lseek(fd, 0, SEEK_SET) < 0) { perror("lseek rewind"); MPI_Abort(MPI_COMM_WORLD, 1); }
 }
 
 int main(int argc, char *argv[])
@@ -450,8 +360,8 @@ int main(int argc, char *argv[])
     }
 
     // ---- STAGE: merge ---------------------------------------------------
-    // Covers: build_kmer_adapter + extern setup + IOBuffer alloc +
-    // self_adaptamer_merge + redistribute_seeds(N+C) + recompute_buck.
+    // Covers: build_kmer_adapter + extern setup + IOBuffer/SeedUnit alloc +
+    // self_adaptamer_merge + redistribute_seeds_mem(N+C) + count_buck.
     t_stage_start = MPI_Wtime();
 
     KmerStreamAdapter T1;
@@ -556,37 +466,28 @@ int main(int argc, char *argv[])
     int num_units = NTHREADS * NUNITS;
     N_Units = calloc(num_units, sizeof(IOBuffer));
     C_Units = calloc(num_units, sizeof(IOBuffer));
-
-    int64 total_buf_bytes = 2ll * num_units * 1000000ll;
-    uint8 *unit_buffer = malloc(total_buf_bytes);
     int64 *unit_bucks  = calloc(2ll * NTHREADS * NCONTS, sizeof(int64));
-    if (unit_buffer == NULL || unit_bucks == NULL) {
+    if (N_Units == NULL || C_Units == NULL || unit_bucks == NULL) {
         fprintf(stderr, "rank %d: out of memory for unit buffers\n", my_rank);
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+
+    N_SeedUnits = calloc(num_units, sizeof(SeedUnit));
+    C_SeedUnits = calloc(num_units, sizeof(SeedUnit));
+    if (N_SeedUnits == NULL || C_SeedUnits == NULL) {
+        fprintf(stderr, "rank %d: out of memory for SeedUnits\n", my_rank);
         MPI_Abort(MPI_COMM_WORLD, 1);
     }
 
     int k = 0;
     for (int i = 0; i < NTHREADS; i++) {
         for (int j = 0; j < NUNITS; j++) {
-            char npath[1024], cpath[1024];
-            snprintf(npath, sizeof(npath), "%s/%s.%d.N", SORT_PATH, PAIR_NAME, k);
-            snprintf(cpath, sizeof(cpath), "%s/%s.%d.C", SORT_PATH, PAIR_NAME, k);
-            N_Units[k].bufr = unit_buffer + (2ll * k) * 1000000ll;
-            C_Units[k].bufr = unit_buffer + (2ll * k + 1) * 1000000ll;
-            N_Units[k].btop = N_Units[k].bufr;
-            C_Units[k].btop = C_Units[k].bufr;
-            N_Units[k].bend = N_Units[k].bufr + (1000000 - (IBYTE + JBYTE + 1));
-            C_Units[k].bend = C_Units[k].bufr + (1000000 - (IBYTE + JBYTE + 1));
             N_Units[k].buck = unit_bucks + (2ll * i) * NCONTS;
             C_Units[k].buck = unit_bucks + (2ll * i + 1) * NCONTS;
             N_Units[k].inum = k;
             C_Units[k].inum = k;
-            N_Units[k].file = open(npath, O_RDWR | O_CREAT | O_TRUNC, 0666);
-            C_Units[k].file = open(cpath, O_RDWR | O_CREAT | O_TRUNC, 0666);
-            if (N_Units[k].file < 0 || C_Units[k].file < 0) {
-                fprintf(stderr, "rank %d: cannot open seed files\n", my_rank);
-                MPI_Abort(MPI_COMM_WORLD, 1);
-            }
+            seed_unit_init(&N_SeedUnits[k], k);
+            seed_unit_init(&C_SeedUnits[k], k);
             k++;
         }
     }
@@ -601,28 +502,32 @@ int main(int argc, char *argv[])
     self_adaptamer_merge((Kmer_Stream *)&T1, (Post_List *)&P1, gdb->seqtot);
     double t_merge_core = now_s() - t0;
 
-    // Seeds are now in the N/C unit files; pair_sort_search and everything
-    // after it read only those files and the GDB, never the k-mer adapter.
+    // Seeds are now in SeedUnits; pair_sort_search and everything after it
+    // read only those buffers and the GDB, never the k-mer adapter.
     free_kmer_adapter(&T1, &P1);
     mem_stage_end(MEM_MERGE);
 
-    // After the two Alltoallvs each rank's N_Units[0].file / C_Units[0].file
-    // holds all seed pairs destined for it (from all source ranks).
+    // Trim slack from doubling before exchange.
+    for (int r = 0; r < num_units; r++) {
+        seed_unit_trim(&N_SeedUnits[r]);
+        seed_unit_trim(&C_SeedUnits[r]);
+    }
+
     if (my_rank == ROOT)
         fprintf(stderr, "[merge] redistributing seeds via MPI_Alltoallv...\n");
 
-    char n_combined[1024], c_combined[1024];
-    int64 n_sent, c_sent;
+    int seed_bytes = 1 + IBYTE + JBYTE;
+    int64 n_sent, c_sent, n_recv, c_recv;
     XchgStats n_xst, c_xst;
     t0 = now_s();
-    int64 n_recv = redistribute_seeds(N_Units, world_size, 'N', 1 + IBYTE + JBYTE,
-                                      SORT_PATH, PAIR_NAME,
-                                      n_combined, sizeof(n_combined), &n_sent, &n_xst);
+    Recv_N_Data = redistribute_seeds_mem(N_SeedUnits, world_size, seed_bytes,
+                                         &n_recv, &n_sent, &n_xst);
+    Recv_N_Len = n_recv;
     double t_redist_n = now_s() - t0;
     t0 = now_s();
-    int64 c_recv = redistribute_seeds(C_Units, world_size, 'C', 1 + IBYTE + JBYTE,
-                                      SORT_PATH, PAIR_NAME,
-                                      c_combined, sizeof(c_combined), &c_sent, &c_xst);
+    Recv_C_Data = redistribute_seeds_mem(C_SeedUnits, world_size, seed_bytes,
+                                         &c_recv, &c_sent, &c_xst);
+    Recv_C_Len = c_recv;
     double t_redist_c = now_s() - t0;
     fprintf(stderr, "[merge] rank %d: received N=%lld C=%lld bytes\n",
             my_rank, (long long) n_recv, (long long) c_recv);
@@ -631,10 +536,13 @@ int main(int argc, char *argv[])
     // is now 1 (matching pair_sort_search's NPARTS=1 expectation).
     NUNITS = 1;
 
-    // Recompute per-A-contig seed counts in the received buffers.
+    // Recount per-A-contig seeds from received buffers; on 1 rank the merge
+    // counts are already correct (all seeds stayed local).
     t0 = now_s();
-    recompute_buck(&N_Units[0], IBYTE, IPOST, ICONT);
-    recompute_buck(&C_Units[0], IBYTE, IPOST, ICONT);
+    if (world_size > 1) {
+        count_buck(N_Units[0].buck, Recv_N_Data, n_recv, seed_bytes);
+        count_buck(C_Units[0].buck, Recv_C_Data, c_recv, seed_bytes);
+    }
     double t_recompute = now_s() - t0;
     t_merge = MPI_Wtime() - t_stage_start;
     mem_stage_end(MEM_REDIST);
@@ -798,10 +706,11 @@ cleanup:
     free(Perm1);
     free(IDBsplit);
     free(Select);
-    free(unit_buffer);
     free(unit_bucks);
     free(N_Units);
     free(C_Units);
+    free(N_SeedUnits);
+    free(C_SeedUnits);
 
     int any_conv_failed = 0;
     MPI_Allreduce(&conv_failed, &any_conv_failed, 1, MPI_INT, MPI_MAX,

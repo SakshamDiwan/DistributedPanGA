@@ -47,7 +47,7 @@ pga-mpi: $(PHASE3_SRCS) $(LIB_SRCS)
 # (dsort.c), the k-mer adapter and the lifted FastGA pipeline.
 PHASE4B_SRCS = src/pga-mpi-merge.c $(CORE_SRCS) src/sort.c src/dsort.c src/chunked_exchange.c \
                src/kmer_adapter.c src/fastga_pipeline.c src/contig_assignment.c \
-               src/seed_exchange.c src/run_cmd.c
+               src/seed_exchange.c src/run_cmd.c src/seed_buffer.c
 pga-mpi-merge: $(PHASE4B_SRCS) $(LIB_SRCS)
 	$(CC) $(CFLAGS) -o pga-mpi-merge $(PHASE4B_SRCS) $(LIB_SRCS) $(LIBS)
 

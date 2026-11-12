@@ -121,6 +121,13 @@ extern char  *ALGN_PAIR;
 extern IOBuffer *N_Units;
 extern IOBuffer *C_Units;
 
+extern SeedUnit *N_SeedUnits;
+extern SeedUnit *C_SeedUnits;
+extern uint8    *Recv_N_Data;
+extern uint8    *Recv_C_Data;
+extern int64     Recv_N_Len;
+extern int64     Recv_C_Len;
+
 typedef struct {
     int   beg;
     int   end;
@@ -138,21 +145,23 @@ typedef struct {
     int          tid;
     int          pbeg, pend;
     uint8       *cache;
-    IOBuffer    *nunit;
-    IOBuffer    *cunit;
+    SeedUnit    *nunit;
+    SeedUnit    *cunit;
+    int64       *nbuck;
+    int64       *cbuck;
     int64        nhits;
     int64        tseed;
 } SP;
 
 typedef struct {
-    int       in;
+    uint8    *seed_data;
+    int64     seed_len;
     int       swide;
     int       comp;
     int       inum;
     GDB      *gdb1;
     GDB      *gdb2;
     int64    *buck;
-    uint8    *buffer;
     uint8    *sarr;
     Range    *range;
 } RP;
@@ -244,8 +253,10 @@ void *new_self_merge_thread(void *args)
 { SP *parm = (SP *) args;
   int tid          = parm->tid;
   uint8 *cache     = parm->cache;
-  IOBuffer  *nunit = parm->nunit;
-  IOBuffer  *cunit = parm->cunit;
+  SeedUnit  *nunit = parm->nunit;
+  SeedUnit  *cunit = parm->cunit;
+  int64     *nbuck = parm->nbuck;
+  int64     *cbuck = parm->cbuck;
   Kmer_Stream *T1  = parm->T1;
 
   int64   tbeg, tend;
@@ -260,15 +271,6 @@ void *new_self_merge_thread(void *args)
   uint8  *iptr = (uint8 *) (&icont);
   int     qcnt, pcnt;
   int64   nhits, tseed;
-
-  { int j;
-    for (j = 0; j < NUNITS; j++) {
-      nunit[j].bend = nunit[j].bufr + (1000000-(IBYTE+JBYTE+1));
-      nunit[j].btop = nunit[j].bufr;
-      cunit[j].bend = cunit[j].bufr + (1000000-(IBYTE+JBYTE+1));
-      cunit[j].btop = cunit[j].bufr;
-    }
-  }
 
   ctop  = cache;
   nhits = 0;
@@ -360,8 +362,9 @@ void *new_self_merge_thread(void *args)
       if (suf1[CBYTE] >= mlen) continue;
 
       { int       idest, isign, jsign;
-        IOBuffer *ou;
-        uint8    *p, *pay1, *btop;
+        SeedUnit *ou;
+        int64    *bk;
+        uint8    *p, *pay1;
         int64     jcont;
         uint8    *jptr = (uint8 *) (&jcont);
         int64     jcont_mask = ((int64) 1 << (8 * JCONT - 1)) - 1;
@@ -387,52 +390,28 @@ void *new_self_merge_thread(void *args)
             }
 
             if (isign == jsign)
-              ou = nunit + idest;
-            else
-              ou = cunit + idest;
-            btop = ou->btop;
-            *btop++ = plen;
-            memcpy(btop,pay1,IBYTE);
-            btop += IBYTE;
-            memcpy(btop,p,JBYTE);
-            btop += JBYTE;
-
-            nhits += 1;
-            tseed += plen;
-            ou->buck[icont] += 1;
-
-            if (btop >= ou->bend)
-              { if (write(ou->file,ou->bufr,btop-ou->bufr) < 0)
-                  { fprintf(stderr,"%s: IO write to file %s/%s.%d.%c failed\n",
-                                   Prog_Name,SORT_PATH,PAIR_NAME,
-                                   ou->inum,(isign == jsign) ? 'N' : 'C');
-                    exit (1);
-                  }
-                ou->btop = ou->bufr;
+              { ou = nunit + idest;
+                bk = nbuck;
               }
             else
-              ou->btop = btop;
+              { ou = cunit + idest;
+                bk = cbuck;
+              }
+            seed_unit_ensure(ou, 1 + IBYTE + JBYTE);
+            { uint8 *dst = ou->data + ou->len;
+              *dst++ = plen;
+              memcpy(dst,pay1,IBYTE);
+              dst += IBYTE;
+              memcpy(dst,p,JBYTE);
+            }
+            ou->len += 1 + IBYTE + JBYTE;
+            nhits += 1;
+            tseed += plen;
+            bk[icont] += 1;
           }
         if (isign) pay1[ISIGN] |= 0x80;
       }
     }
-
-  { int j;
-    for (j = 0; j < NUNITS; j++)
-      { if (nunit[j].btop > nunit[j].bufr)
-          if (write(nunit[j].file,nunit[j].bufr,nunit[j].btop-nunit[j].bufr) < 0)
-            { fprintf(stderr,"%s: IO write to file %s/%s.%d.N failed\n",
-                             Prog_Name,SORT_PATH,PAIR_NAME,nunit[j].inum);
-              exit (1);
-            }
-        if (cunit[j].btop > cunit[j].bufr)
-          if (write(cunit[j].file,cunit[j].bufr,cunit[j].btop-cunit[j].bufr) < 0)
-            { fprintf(stderr,"%s: IO write to file %s/%s.%d.C failed\n",
-                             Prog_Name,SORT_PATH,PAIR_NAME,cunit[j].inum);
-              exit (1);
-            }
-      }
-  }
 
   parm->nhits = nhits/2;
   parm->tseed = tseed/2;
@@ -487,13 +466,14 @@ void self_adaptamer_merge(Kmer_Stream *T1, Post_List *P1, int64 g1len)
   if (cache == NULL) exit (1);
 
   for (i = 0; i < NTHREADS; i++)
-    { IOBuffer *nu, *cu;
-      parm[i].tid   = i;
+    { parm[i].tid   = i;
       parm[i].cache = cache + i * (P1->maxp+1) * KBYTE;
-      parm[i].nunit = nu = N_Units + i * NUNITS;
-      parm[i].cunit = cu = C_Units + i * NUNITS;
-      bzero(nu[0].buck,sizeof(int64)*NCONTS);
-      bzero(cu[0].buck,sizeof(int64)*NCONTS);
+      parm[i].nunit = N_SeedUnits + i * NUNITS;
+      parm[i].cunit = C_SeedUnits + i * NUNITS;
+      parm[i].nbuck = N_Units[i * NUNITS].buck;
+      parm[i].cbuck = C_Units[i * NUNITS].buck;
+      bzero(parm[i].nbuck,sizeof(int64)*NCONTS);
+      bzero(parm[i].cbuck,sizeof(int64)*NCONTS);
     }
 
   for (i = 1; i < NTHREADS; i++)
@@ -1160,10 +1140,8 @@ void *search_seeds(void *args)
 void *reimport_thread(void *args)
 { RP *parm = (RP *) args;
   int    swide  = parm->swide;
-  int    in     = parm->in;
   int    comp   = parm->comp;
   uint8 *sarr   = parm->sarr;
-  uint8 *bufr   = parm->buffer;
   int64 *buck   = parm->buck;
 
   int64  ipost, jpost, icont, jcont, band, anti;
@@ -1174,28 +1152,17 @@ void *reimport_thread(void *args)
   uint8 *_band  = (uint8 *) (&band);
   uint8 *_anti  = (uint8 *) (&anti);
 
-  int    iamt;
   uint8 *x;
-  int    iolen, iunit, lcp;
+  int    iunit, lcp;
   int64  diag, flag, mask;
-  uint8 *bend, *btop, *b;
+  uint8 *bend, *b;
 
-  iolen = 2*NPARTS*1000000;
   iunit = IBYTE + JBYTE + 1;
 
-  iamt = read(in,bufr,iolen);
-  if (iamt < 0)
-    { fprintf(stderr,"%s: IO read error for file %s/%s.%d.%c\n",
-                     Prog_Name,SORT_PATH,PAIR_NAME,parm->inum,comp?'C':'N');
-      exit (1);
-    }
-  bend = bufr + iamt;
-  if (bend-bufr < iolen) btop = bend;
-  else btop = bend-iunit;
-  b = bufr;
+  b    = parm->seed_data;
+  bend = b + parm->seed_len;
+  if (parm->seed_len == 0) return (NULL);
 
-  // Zero the int64 slots before partial-byte memcpy fills only their LSBs.
-  // (FastGA.c:2681-2684)
   ipost = 0;
   jpost = 0;
   icont = 0;
@@ -1204,8 +1171,7 @@ void *reimport_thread(void *args)
   flag = (0x1ll << (8*JCONT-1));
   mask = flag-1;
 
-  if (bend > bufr)
-  while (1)
+  while (b + iunit <= bend)
     { lcp = *b++;
       memcpy(_ipost,b,IPOST); b += IPOST;
       memcpy(_icont,b,ICONT); b += ICONT;
@@ -1228,25 +1194,7 @@ void *reimport_thread(void *args)
       memcpy(x,_anti,DBYTE); x += DBYTE;
       memcpy(x,_band,DBYTE); x += DBYTE;
       memcpy(x,_jcont,JCONT); x += JCONT;
-
-      if (b >= btop)
-        { int ex = bend-b;
-          memcpy(bufr,b,ex);
-          bend = bufr+ex;
-          iamt = read(in,bend,iolen-ex);
-          if (iamt < 0)
-            { fprintf(stderr,"%s: IO read error for file %s/%s.%d.%c\n",
-                             Prog_Name,SORT_PATH,PAIR_NAME,parm->inum,comp?'C':'N');
-              exit (1);
-            }
-          bend += iamt;
-          if (bend == bufr) break;
-          if (bend-bufr < iolen) btop = bend;
-          else btop = bend-iunit;
-          b = bufr;
-        }
     }
-  close(in);
   return (NULL);
 }
 
@@ -1544,7 +1492,6 @@ void pair_sort_search(GDB *gdb1, GDB *gdb2)
   for (p = 0; p < NTHREADS; p++)
     { rarm[p].swide  = swide;
       rarm[p].sarr   = sarray;
-      rarm[p].buffer = N_Units[p].bufr;
       rarm[p].range  = range+p;
       rarm[p].gdb1   = gdb1;
       rarm[p].gdb2   = gdb2;
@@ -1594,8 +1541,8 @@ void pair_sort_search(GDB *gdb1, GDB *gdb2)
         }
       t0 = pss_now();
       for (p = 0; p < NTHREADS; p++)
-        { rarm[p].in = nu[p].file;
-          lseek(nu[p].file,0,SEEK_SET);
+        { rarm[p].seed_data = (u == 0) ? Recv_N_Data : Recv_C_Data;
+          rarm[p].seed_len  = (u == 0) ? Recv_N_Len  : Recv_C_Len;
           rarm[p].buck = nu[p].buck;
           rarm[p].comp = u;
           rarm[p].inum = nu[p].inum;
@@ -1606,6 +1553,10 @@ void pair_sort_search(GDB *gdb1, GDB *gdb2)
       for (p = 1; p < NTHREADS; p++)
         pthread_join(threads[p],NULL);
       Pair_Search_Stats.reimport_s[u] += pss_now()-t0;
+
+      // Free the received buffer now that seeds are in the sort array.
+      if (u == 0) { free(Recv_N_Data); Recv_N_Data = NULL; Recv_N_Len = 0; }
+      else        { free(Recv_C_Data); Recv_C_Data = NULL; Recv_C_Len = 0; }
       t0 = pss_now();
 
       { int64 prev, next;
