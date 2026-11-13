@@ -1,0 +1,66 @@
+%% =====================================================================
+%% System and methods -- owner: Harshaan.
+%% Terminology (keep consistent across the paper): GDB, GIX, closed syncmer,
+%% adaptive seed (adaptamer), frequency cutoff f, contig pair, rank, record
+%% (one indexed k-mer occurrence), seed (a pair of occurrences).
+%% Verified against src/ and notes/GIXmake_dump.c (FastGA 178afcb).
+%% =====================================================================
+
+\subsection{FastGA}\label{sec:methods:fastga}
+
+FastGA~\cite{fastga} aligns genome assemblies on a single shared-memory
+node. It stores the input as a genome database (GDB) of 2-bit packed
+sequence and builds a genome index (GIX): the sorted 40-mers sampled at
+closed-syncmer positions (Section~\ref{sec:alg:extraction}), with the
+longest common prefix (LCP) of each entry with its predecessor and every
+occurrence's contig, offset and strand. Seeds are adaptive seeds
+(adaptamers): for each occurrence, the longest prefix it shares with
+another indexed k-mer, kept only if fewer than $f$ entries share it
+($f=10$ by default), and paired with every other occurrence of that prefix.
+Seeds are sorted by contig pair and diagonal, diagonal bands with
+sufficient seed coverage are extended into local alignments, and
+\texttt{ALNtoPAF} converts FastGA's \texttt{.1aln} output to PAF.
+For a pangenome, all haplotypes are placed in one GDB and aligned against
+themselves, so one index and one merge cover every pair of
+haplotypes~\cite{garrison}.
+
+For $H$ haplotypes of length about $L$, indexing and the merge scan are
+$O(HL)$. So is seed generation, with at most $f-1$ seeds per occurrence,
+but only because adaptamers occurring $f$ or more times (e.g.\ a 40-mer
+conserved in $f$ haplotypes) are discarded. Alignment has no such bound:
+when most haplotype pairs align end to end, the output alone grows
+quadratically in~$H$.
+
+\subsection{DistributedPanGA}\label{sec:methods:overview}
+
+DistributedPanGA~\cite{dpanga} computes the same self-alignment as FastGA
+with $P$ single-threaded MPI ranks, which read one shared GDB on demand.
+The pipeline has six stages (Section~\ref{sec:algorithm}).
+\begin{enumerate}
+\item \textbf{Extraction:} each rank emits one record per sampled k-mer
+  occurrence in its range of whole contigs.
+\item \textbf{Distributed sort:} records are exchanged by k-mer prefix and
+  sorted locally; the slices, in rank order, hold FastGA's index entries in
+  k-mer order.
+\item \textbf{Seed generation:} each rank runs FastGA's adaptamer merge on
+  its slice.
+\item \textbf{Seed redistribution:} each seed goes to the single rank that
+  owns its contig pair.
+\item \textbf{Alignment:} each rank aligns its own pairs with FastGA's code.
+\item \textbf{Output:} each rank writes PAF with \texttt{ALNtoPAF}; the
+  union of the per-rank files is the result.
+\end{enumerate}
+
+Syncmer selection, the adaptamer merge, alignment and PAF conversion are
+FastGA code, kept close to upstream. Ours are the extraction partition and
+in-window k-mer packing, the distributed sort, an adapter that presents a
+rank's slice through FastGA's index interface in place of a GIX file, the
+deterministic assignment of contig pairs to ranks, and the two bounded
+all-to-all exchanges (Section~\ref{sec:alg:mpi}).
+
+Our correctness criterion is exact agreement with an independent
+single-node FastGA run on the same GDB: both PAF files are sorted
+bytewise, keeping duplicates, and compared byte for byte. This multiset
+equality is stronger than matching alignment counts.
+% TODO: state the FastGA reference commit (178afcb) in the experimental
+%       setup (open-questions.txt Q1).

@@ -1,0 +1,28 @@
+%% =====================================================================
+%% Algorithm / Seed extraction -- owner: Harshaan.
+%% Selection verified against src/extract.c:scan_contig and
+%% notes/GIXmake_dump.c (scan_thread). Validation lives in impl-o1.tex.
+%% =====================================================================
+
+\subsection{Seed extraction}\label{sec:alg:extraction}
+
+Extraction reproduces FastGA's k-mer sampling exactly. Each rank scans a
+contiguous range of whole contigs, balanced by length, in windows of up to
+10\,Mbp. The start $j$ of a 12-mer is selected when the 12-mer is a closed
+syncmer: the minimum of its five canonical 8-mers, under FastGA's fixed
+(non-lexicographic) order, occurs at its first or last 8-mer position.
+With ties, an occurrence at either end suffices.
+
+Each selected position yields up to two records: the forward 40-mer
+starting at $j$ and the reverse complement of the 40-mer ending at the last
+base of the syncmer; a strand is skipped where its 40-mer would leave the
+contig. A record stores the 2-bit packed k-mer with its contig, position
+and strand. Occurrences, not k-mer counts, are needed because each seed
+pairs two occurrences.
+
+Every window after the first is extended 40 bases to the left, so that
+reverse-complement k-mers and forward k-mers starting before the window
+lie inside it. Only a forward k-mer that runs past the right edge of a
+non-final window is read separately from the GDB. The scan state carries
+across windows, so the selected positions and the order of emitted records
+do not depend on the window size.

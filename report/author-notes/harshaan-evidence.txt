@@ -1,0 +1,59 @@
+Evidence ledger. Every number: source file, job, binary. "pre-O4" = binary
+before bce56a4 (seeds via files); numbers may not hold for current code.
+
+E1 Correctness: independent FastGA gold (FastGA 178afcb, single node).
+   Protocol: cat out.rank*.paf | LC_ALL=C sort; cmp vs sorted gold
+   (jobs/o1/o1_lib.sh:10-13). Multiset equality of PAF lines.
+   dataset          input        gold alignments  matched at (ranks/nodes)
+   yeast7           ~84 Mbp      43,126           1,2,4,8 / 1   (20/20 runs O1a)
+   scerevisiae8     ~96 Mbp      50,046           4 / 1 (PR #10)
+   primates4.chr6   ~679 Mbp     1,547,485        8,16 / 1
+   primates14.chr6  ~2.64 Gbp    4,577,556        16 / 1, 32 / 2
+   gold jobs 58873948 (yeast7), 59709627 (others); runs 59686567,
+   59691033, 59717508, 59717520. SHA-256 of inputs/golds: see the
+   pga-datasets.sha256 file sent to Saksham.
+   CHECK input sizes vs MANIFESTs before quoting.
+
+E2 O1a extraction (yeast7, 1 node, -c 16, n=3 interleaved, mean+-sd,
+   job 59691033; base abaea3f vs O1a f528988; docs/agent/o1a-results.md)
+   N  extract base->O1a     wall base->O1a       sys s all ranks
+   1  49.76 -> 1.48 (33.6x) 113.80 -> 65.43 (1.74x)  26.7 -> 2.7
+   8  28.61 -> 0.21 (136x)  39.11 -> 10.57 (3.70x)   199.3 -> 6.3
+   share of wall: N=1 43.7% -> 2.3%; N=8 73.2% -> 2.0%
+   1->8 wall speedup: 2.9x -> 6.2x
+   small6 strace lseek 38,035 -> 16 (commit f5289882 message)
+   Caveat: one small dataset, one node; pre-#9/#10/O4 binaries.
+
+E3 Large-count exchange (docs/agent/pr2-results.md)
+   - scerevisiae8 N=2 aborted (> INT_MAX) before the fix.
+   - forced rounds: raw per-rank PAF byte-identical, gold MATCH (yeast7
+     N=1/2/8, scerevisiae8 N=4 at 8 MiB budget); test-mpi at 256 B budget.
+   - wall unchanged within noise (yeast7 N=1 64.8 vs 65.5 s, N=8 10.52 vs 10.56 s): it is a
+     capability/memory fix, not a speedup.
+   - SUPERSEDED: seed-redistribution peak 2,526 -> 40 MB was the file
+     streaming design; O4 (bce56a4) keeps seeds in RAM.
+
+E4 primates14 scale (docs/agent/decision-gate-2.md; pre-O4 binary addf993)
+   N=16/1 node 1,440.9 s; N=32/2 nodes 1,221.9 s (1.18x); alignment
+   96-97% of wall; imbalance max/mean 1.95 / 3.35; peak per rank 11.5 /
+   8.7 GB (overall_peak, internal); seeds total ~49.9 GB; 6 / 4 seed rounds.
+
+E5 Alignment cost (gate 2) - MODELS from measured per-task times, not runs:
+   self-alignments 49% of work; largest task 773-788 s (7%); total/largest
+   ~14; best pre-alignment predictor R^2(log) ~0.63; dynamic self-first
+   schedule -33..-42% slowest rank at 16-32 ranks.
+
+E6 Human chr6 (pending): Zenodo 7937947, hsapiens90.chr6.masked.fa.gz,
+   4,684,111,595 B, md5 a6513914ade700e4aef4a29290f4bec8, sha256 9326960...
+   Jobs 61239144 / 61239146 / 61239147. Binary main a2cf364 (= fc3503d src).
+
+E7 FastGA gold, human: stock GIXmake 178afcb segfaults at -T32 on hsapiens90
+   chr6 (job 61239144, signal 11 after 6 s). Cause: 32-bit int overflow in
+   the work-block size, GIXmake.c:2001 ((SCAN_MAX+8)+NPARTS*BUFF_MAX)*NTHREADS
+   with NPARTS=64 -> 2.37e9. Reproduced on a login node; gdb backtrace in
+   push() (GIXmake.c:357) on a -g build of the same commit.
+   Workaround: GIXmake -T16 (any -T <= 29 fits). FastGA itself unpatched.
+   Paper: reproducibility detail (Methods/Supplement: exact gold commands),
+   NOT evidence that FastGA "cannot" do human. Upstream report: not filed yet.
+   Thread-count invariance of the gold was checked on scerevisiae8
+   (-T8 vs -T32 sorted PAF identical, job 59709627); not re-checked on human.

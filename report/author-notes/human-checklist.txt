@@ -1,0 +1,11 @@
+When the human jobs finish, collect (all paths under $SCRATCH/pga-human/):
+ [ ] index log: sequences, Gbp, % lowercase, % N  (logs/human-index.61239144.log)
+ [ ] gold: sacct State/Elapsed/MaxRSS, alignment count, sha256 (MANIFEST)
+ [ ] gold: record GIXmake -T16 workaround (evidence E7) in the gold provenance
+ [ ] pilot: State, wall, timing CSV, per-rank peaks, imbalance, rounds,
+     gold=MATCH/DIFFER line, binary sha256 + commit at job start
+ [ ] if pilot OOM: which stage, and the 8-node rerun (same fields)
+ [ ] copy logs + MANIFEST off $SCRATCH (purged; not an archive)
+Then pick branch A/B/C in sec/harshaan/disc-human.tex.
+Do NOT: claim whole-human correctness without MATCH; claim FastGA
+"cannot" run human; turn n=1 into a trend.

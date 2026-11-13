@@ -1,0 +1,32 @@
+%% =====================================================================
+%% Implementation / Extraction I/O (O1) -- owner: Harshaan.
+%% No numbers here: measured results belong in the evaluation.
+%% Evidence: docs/agent/o1-0-results.md (strace, user/sys time),
+%% docs/agent/o1a-results.md (gold MATCH, verify-phase1), tests/unit.
+%% =====================================================================
+
+\subsection{Extraction I/O}\label{sec:impl:o1}
+
+Per-rank timers showed that extraction dominated early runs and barely
+shortened as ranks were added. Although the scan held its window in memory,
+each selected k-mer was fetched again from the GDB. The bytes came from the
+file buffer, but every fetch repositioned the file: system-call tracing
+counted one \texttt{lseek} per record. Kernel time per rank stayed roughly
+constant as work per rank fell. We did not isolate why (shared-file-system
+contention is one candidate); the change removes the calls regardless.
+
+Each k-mer is now packed from the window buffer, extended by 40 bases of
+left context (Section~\ref{sec:alg:extraction}); only forward k-mers
+crossing a window's right edge are still fetched. Both paths share one
+packing routine and the selection loop is unchanged, so only the source of
+the bases changes, not which records are emitted or in what order.
+
+Validation has three levels. Extraction output is byte-identical to the
+previous implementation and to a record dump from an instrumented copy of
+FastGA's \texttt{GIXmake}. Unit tests with a 64-base window compare against
+a single-window run, check that both paths fire and together account for
+every record, and run under address and undefined-behaviour sanitizers.
+End-to-end runs match the FastGA reference
+(Section~\ref{sec:methods:overview}).
+% TODO(Harshaan): extraction speedups go in the evaluation, not here
+%   (historical numbers: author-notes/harshaan-evidence.txt E2).

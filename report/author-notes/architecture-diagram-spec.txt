@@ -1,0 +1,25 @@
+Pipeline figure spec (you draw it; not generated). 178 mm wide (two column)
+or 86 mm if compressed. White background. Needs alt text under caption.
+
+Lanes: left-to-right data flow, P rank lanes stacked (draw 3: rank 0, 1, P-1).
+Shared box above all lanes: "GDB on shared file system" (read by every rank,
+arrows to Extraction and Alignment only).
+
+Per rank, boxes in order (O = optimization mark):
+ 1 Extraction (syncmers, 40-mers)            O1a window packing
+ 2 [all-to-all #1: records by 10-bit prefix bucket]   bounded rounds
+ 3 Local sort + LCP fix-up (neighbour boundary)
+ 4 Seed merge (FastGA code on local slice)
+ 5 [all-to-all #2: seeds by owning contig pair]       bounded rounds, O4 in RAM
+ 6 Alignment (FastGA code, own pairs only)
+ 7 .1aln -> ALNtoPAF -> per-rank PAF
+Right edge: per-rank PAFs -> union = output; dashed arrow to
+"compare with FastGA (sorted, duplicate-preserving)".
+
+Colour/style: FastGA-inherited boxes one style, new/adapted another
+(legend). Inherited = 4, 6, ALNtoPAF; adapted/new = 1 (partition +
+packing), 2, 3, 5, assignment (small box feeding 5, computed on every
+rank from contig lengths).
+Verify against src/pga-mpi-merge.c before finalizing; header comment there
+is stale for step 5.
+Ownership: boxes 5-6 are Saksham's area -- agree the figure with him.
