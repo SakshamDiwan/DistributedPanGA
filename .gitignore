@@ -19,14 +19,12 @@ pga-mpi-merge
 pga-mpi-merge.timing.csv
 logs/
 
-# Report directory
-report/
-
 # Output / scratch files
 *_buckets.txt
 
 # Markdown files
 *.md
+!report/README.md
 
 # ...except the tracked agent-context set (narrow exceptions to *.md above).
 # Datasets, gold fixtures, outputs and tests/ stay ignored.

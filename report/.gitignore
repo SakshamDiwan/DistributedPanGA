@@ -1,0 +1,11 @@
+# LaTeX build outputs (build locally; don't commit)
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+main.pdf
