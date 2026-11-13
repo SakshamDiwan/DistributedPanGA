@@ -1,26 +1,28 @@
 %% =====================================================================
 %% Algorithm / Seed extraction -- owner: Harshaan.
+%% Selection verified against src/extract.c:scan_contig and
+%% notes/GIXmake_dump.c (scan_thread). Validation lives in impl-o1.tex.
 %% =====================================================================
 
 \subsection{Seed extraction}\label{sec:alg:extraction}
 
-Extraction reproduces FastGA's seed selection exactly. Each rank streams its
-contigs in windows of up to 10\,Mbp and slides over every 12-mer, comparing
-the canonical 8-mers it contains. A position is selected when the smallest
-8-mer lies at either end of the 12-mer (a closed syncmer); ties are kept, as
-in FastGA.
-% CHECK: syncmer terminology against the FastGA paper.
+Extraction reproduces FastGA's k-mer sampling exactly. Each rank scans a
+contiguous range of whole contigs, balanced by length, in windows of up to
+10\,Mbp. The start $j$ of a 12-mer is selected when the 12-mer is a closed
+syncmer: the minimum of its five canonical 8-mers, under FastGA's fixed
+(non-lexicographic) order, occurs at its first or last 8-mer position.
+With ties, an occurrence at either end suffices.
 
-Each selected position yields two records: the forward 40-mer starting at
-the position and the reverse-complement 40-mer that ends 12 bases after it.
-A record stores the 2-bit packed k-mer together with its contig, position
-and strand. Per-occurrence records are required because seeds are pairs of
-positions; k-mer counts alone cannot produce alignments.
+Each selected position yields up to two records: the forward 40-mer
+starting at $j$ and the reverse complement of the 40-mer ending at the last
+base of the syncmer; a strand is skipped where its 40-mer would leave the
+contig. A record stores the 2-bit packed k-mer with its contig, position
+and strand. Occurrences, not k-mer counts, are needed because each seed
+pairs two occurrences.
 
-The 40 bases of a k-mer may cross the boundary between two scan windows.
-Every window after the first therefore also holds the 40 bases that precede
-it, which covers all reverse-complement k-mers and all forward k-mers that
-start before the window. Only a forward k-mer that runs past the right edge
-of a non-final window is read separately from the GDB. The selection loop,
-the selected positions and the order in which records are emitted are
-identical for every window size.
+Every window after the first is extended 40 bases to the left, so that
+reverse-complement k-mers and forward k-mers starting before the window
+lie inside it. Only a forward k-mer that runs past the right edge of a
+non-final window is read separately from the GDB. The scan state carries
+across windows, so the selected positions and the order of emitted records
+do not depend on the window size.

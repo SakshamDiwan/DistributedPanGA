@@ -12,8 +12,6 @@ Q4 (Saksham) Boundary between my 3.2 (exchange design) and his O2/O4
    bound; his = code-level O2/O4 + measurements.
 Q5 (Saksham) Why chunked MPI_Alltoallv instead of MPI-4 MPI_Alltoallv_c?
    Mention only with a real reason (portability? Cray MPICH support?).
-Q6 (all) AI use: personal report for now. If it is ever submitted, check the
-   journal's AI-use and disclosure rules (OUP requires a declaration).
 Q7 (all) Template: sn-jnl (Springer) vs OUP's own. Migrate before
    submission? (Not done; Original Paper limit: 7 pages / ~5,000 words.)
 Q8 (Saksham, ALN stage) Should the paper mention the external ALNtoPAF

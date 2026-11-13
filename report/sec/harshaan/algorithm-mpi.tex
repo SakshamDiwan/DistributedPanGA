@@ -1,32 +1,45 @@
 %% =====================================================================
 %% Algorithm / Data movement -- owner: Harshaan (design level only).
 %% Saksham owns the O2/O4 implementation text; keep code-level detail there.
-%% Describes the CURRENT pipeline: in-memory seeds (commit bce56a4).
+%% Describes the CURRENT pipeline: in-memory seeds (bce56a4, a2cf364).
+%% Verified against src/dsort.c, src/chunked_exchange.[ch],
+%% src/contig_assignment.c, src/pga-mpi-merge.c, src/fastga_pipeline.c.
 %% =====================================================================
 
 \subsection{Data movement between ranks}\label{sec:alg:mpi}
 
-The pipeline moves data between ranks twice. In the distributed sort, each
-record is assigned to one of 1{,}024 buckets by the first five bases of its
-k-mer. A global histogram, obtained by a single reduction, gives every rank
-the same bucket counts, and each rank takes a contiguous range of buckets
-holding about $1/P$ of the records. After the exchange, each rank sorts its
-records and recomputes the longest-common-prefix values at the boundaries
-with its neighbours, so the slices together form the global sorted index.
+Ranks exchange data twice: records during the distributed sort, and seeds
+before alignment.
 
-In seed redistribution, each seed is sent to the rank that owns its contig
-pair. Every rank computes the same pair-to-rank map independently from the
-contig lengths, by assigning pairs in decreasing order of length product to
-the least-loaded rank. No communication is needed to agree on it.
+\paragraph{Distributed sort.} Each record is assigned to one of 1{,}024
+buckets by the first five bases of its k-mer. One all-reduce of bucket
+counts lets every rank compute the same split into $P$ contiguous bucket
+ranges of about $1/P$ of the records, by the rule FastGA uses to divide its
+index among threads. Each rank then radix-sorts its slice and recomputes
+LCPs, correcting the first against the preceding rank's last k-mer.
+Because buckets are never split, seed generation needs no communication:
+FastGA's merge pairs only occurrences sharing their first 12 bases, so
+every candidate group, including the full count tested against the cutoff,
+lies on one rank, and each rank produces exactly its share of FastGA's
+seeds.
 
-Both exchanges are personalized all-to-all transfers of fixed-size records,
-which can exceed the 32-bit counts of \texttt{MPI\_Alltoallv} (about 2\,GiB
-per rank). We therefore track sizes in 64 bits and, when a transfer exceeds
-a per-round budget, split it into rounds. Each round sends at most a fixed
-number of whole records to each peer, and every slice is written at its
-final offset in the receive buffer. The received bytes are therefore
-identical to those of a single unbounded exchange, independent of the number
-of rounds, while staging memory is bounded by the budget. Seeds are held in
-memory throughout, so the send and receive seed buffers coexist during
-redistribution (Section~\ref{sec:implementation}).
-% CHECK with Saksham: last sentence vs. his O4 subsection (avoid overlap).
+\paragraph{Seed redistribution.} Each seed is sent to the rank that owns
+its contig pair. Every rank computes the same pair-to-rank map from contig
+lengths alone, giving pairs in decreasing order of length product to the
+rank with the smallest accumulated product, so no communication is needed.
+The merge writes each seed directly into an in-memory buffer for its
+destination rank.
+
+\paragraph{Bounded exchanges.} Both exchanges are personalized all-to-all
+transfers of fixed-size records whose volume per rank can exceed the 32-bit
+counts and displacements of \texttt{MPI\_Alltoallv} ($2^{31}-1$ bytes). Sizes
+are therefore exchanged as 64-bit integers, and a transfer that exceeds a
+per-round budget is split into rounds of \texttt{MPI\_Alltoallv}. Each round
+moves at most a fixed number of whole records per peer, and every received
+slice is written at its final offset, so the result is byte-identical to a
+single unbounded exchange for any number of rounds. The budget bounds only
+staging memory: the complete send and receive data stay resident (during
+the sort, a rank holds its extracted records, their packed send copy and
+its received slice), so peak memory per rank is set by its volume of
+records and seeds, not by the budget (Section~\ref{sec:implementation}).
+% CHECK with Saksham: memory sentences vs. his O4 subsection (avoid overlap).

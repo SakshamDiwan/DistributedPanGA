@@ -37,6 +37,9 @@
 
 \raggedbottom
 
+%% Visible placeholder for sections still to be written.
+\newcommand{\TODO}[1]{\textcolor{red}{[TODO: #1]}}
+
 \begin{document}
 
 \title[Short Title]{Article Title}
@@ -59,11 +62,11 @@
 \affil[3]{\orgdiv{Applied Mathematics and Computational Research Division}, \orgname{Lawrence Berkeley National Laboratory}, \orgaddress{\street{1 Cyclotron Road}, \city{Berkeley}, \postcode{94720}, \state{California}, \country{USA}}}
 
 %% Bioinformatics structured abstract (150 words recommended in total)
-\abstract{\textbf{Motivation:} Motivation text.
+\abstract{\textbf{Motivation:} Self-aligning a pangenome of $H$ haplotypes with FastGA finds matches across all haplotype pairs in a single scan of one sorted $k$-mer table, so the scan grows as $O(H \cdot L)$ rather than the $O(H^2 \cdot L)$ of explicit all-pairs alignment~\cite{fastga,garrison}. The table itself, however, grows with $H \cdot L$ and soon exceeds the memory of a single node. Distributing it across nodes removes that limit, but the result is only useful if it reproduces FastGA's alignments exactly.
 
-\textbf{Results:} Results text.
+\textbf{Results:} \TODO{results summary, after the primate and human experiments (shared)}
 
-\textbf{Availability and Implementation:} Full URL of the software and data, license, and implementation details.
+\textbf{Availability and Implementation:} DistributedPanGA is implemented in C with MPI and is available at \url{https://github.com/SakshamDiwan/DistributedPanGA}. Benchmark pangenomes are from Zenodo~\cite{pggbdata}. \TODO{license and archived release}
 
 \textbf{Contact:} egarris5@uthsc.edu, gg434@cornell.edu
 
@@ -79,6 +82,7 @@
 \input{sec/methods}
 \input{sec/algorithm}
 \input{sec/implementation}
+\input{sec/results}
 \input{sec/discussion}
 
 \backmatter

@@ -1,34 +1,53 @@
 %% =====================================================================
 %% Discussion / Limitations and future work -- owner: Harshaan.
-%% No HySortK here (Nov 13 decision). No O3/O5 labels: research-plan.md
-%% and later docs disagree on what O3 means; O5 (GPU) is not discussed.
-%% Nothing below is implemented.
+%% Two directions from the project proposal: O3 (workload-aware load
+%% balancing) and O5 (GPU offload); kept open-ended. Internal O-labels are
+%% not used in the text. No HySortK here (Nov 13 decision).
+%% Nothing below is implemented. Measured vs. modeled is marked inline.
+%% Evidence: decision-gate-2.md (pre-O4 binary addf993); limits from
+%% src/contig_assignment.c, src/pga-mpi-merge.c, src/work_split.c.
 %% =====================================================================
 
 \subsection{Limitations and future work}\label{sec:disc:future}
 
 Alignment is now the dominant stage, and its cost is unevenly distributed
-across ranks. The time of an alignment task follows the amount of sequence
-it aligns, which is not known in advance and is poorly predicted by seed
-counts or contig lengths. This suggests replacing the static assignment of
-contig pairs with dynamic scheduling, in which ranks take the next task from
-a shared queue as they become free.
-% CHECK: "dominant" + "poorly predicted" come from decision-gate-2
-%        (primates); keep qualitative here, numbers in the evaluation.
+across ranks. Contig pairs are assigned statically by length product,
+whereas a task's time depends on how much sequence it aligns; in primates4
+the costliest tasks paired short, repeat-rich contigs with few seeds but
+very long alignments. Task granularity is a harder limit: each pair is
+aligned by one rank, so the largest task bounds alignment time from below.
+In primates14 (earlier revision), that task was the self-alignment of the
+longest contig, and total alignment work was only about 14 times its cost,
+capping alignment speedup near $14\times$ at any rank count.
+% Numbers belong in Results; re-measure on the current binary.
 
-Scheduling alone has a limit: each contig pair is aligned by one rank, and
-self-alignments of long contigs are the largest tasks. Scaling further
-requires splitting such a task across ranks while producing exactly
-FastGA's alignments. This is an open problem.
+\paragraph{Workload-aware load balancing.}
+Contig pairs could be weighted by estimated work rather than length, as
+in the multiway number partitioning of ELBA~\cite{elba}, provided every
+rank still derives the assignment without communication. However,
+pre-alignment features such as seed counts only partly predict alignment
+time in our measurements. Replaying measured task times under a dynamic
+schedule (self-alignments first, by contig length) shortens the slowest
+rank in simulation only; it is not implemented, and it conflicts with
+sending seeds to their owner before alignment. No schedule beats the
+largest-task bound; that requires splitting self-alignments across ranks
+while reproducing FastGA's alignments exactly, an open problem.
 
-Two implementation limits also bound scale. The pair-to-rank map uses 8-bit
-entries, which caps the number of ranks at 127, and extraction partitions
-work at whole-contig boundaries.
+\paragraph{GPU acceleration.}
+Syncmer selection and radix sorting are regular, data-parallel passes over
+packed 2-bit sequence and candidates for GPU offload, but they now take
+a small share of run time; alignment, which dominates, is irregular and
+harder to offload.
 
-Finally, exact validation at human scale requires an independent
+\paragraph{Other limits.}
+Ranks are single-threaded, so cores are used only as additional ranks.
+The contig-pair map stores one byte per ordered pair on every rank, which
+caps the rank count at 127 and grows quadratically with the number of
+contigs, a constraint for fragmented assemblies. Work is partitioned at
+whole contigs for extraction and at 1{,}024 buckets for the sort, limiting
+balance at high rank counts, and all seeds are held in memory with no
+out-of-core fallback. Exact validation at human scale needs an independent
 single-node FastGA reference, whose cost grows rapidly with the number of
-haplotypes. Agreement between runs at different rank counts is weaker
-evidence than agreement with FastGA, because it shares any error of our
-own pipeline.
-% TODO(Harshaan): Add human results and interpretation after validation
-%   (branches A/B/C in disc-human.tex; checklist in author-notes).
+haplotypes. Agreement between runs at
+different rank counts is weaker evidence than agreement with FastGA,
+because it shares any error of our own pipeline.
