@@ -304,8 +304,8 @@ static void record_emit_cb(void *user, int contig, int64_t position, int strand,
     if (b->count >= b->capacity)
         record_buffer_grow(b);
 
-    int post_bytes  = b->sizing.post_bytes;
-    int cont_bytes  = b->sizing.cont_bytes;
+    int position_bytes  = b->sizing.position_bytes;
+    int contig_strand_bytes  = b->sizing.contig_strand_bytes;
     int record_size = b->sizing.record_size;
     uint8_t *r = b->data + b->count * record_size;
 
@@ -314,15 +314,15 @@ static void record_emit_cb(void *user, int contig, int64_t position, int strand,
     r[MASK_OFFSET] = 0;                // mask: not supported in v1
 
     int64_t pos_val = position;
-    for (int k = 0; k < post_bytes; k++)
+    for (int k = 0; k < position_bytes; k++)
         r[POS_OFFSET + k] = (uint8_t) ((pos_val >> (8 * k)) & 0xff);
 
     // Contig field: contig_id with strand bit in the high bit of the last cont_byte.
     int64_t cont_val = (int64_t) contig;
     if (strand)
-        cont_val |= ((int64_t) 1) << (8 * cont_bytes - 1);
-    int cont_off = POS_OFFSET + post_bytes;
-    for (int k = 0; k < cont_bytes; k++)
+        cont_val |= ((int64_t) 1) << (8 * contig_strand_bytes - 1);
+    int cont_off = POS_OFFSET + position_bytes;
+    for (int k = 0; k < contig_strand_bytes; k++)
         r[cont_off + k] = (uint8_t) ((cont_val >> (8 * k)) & 0xff);
 
     b->count++;

@@ -127,7 +127,7 @@ the independent decoder in `tests/support/rec_build.c`.
 | E-07 | 2 kb random | every forward record's position is a selected offset `j <= len-40`; every RC position is `j+12` with `j >= 28` |
 | E-08 | 41 b | forward only at `j <= 1`, RC only at `j >= 28`; no offset yields both (1 < 28); full multiset matches oracle |
 | E-09 | 67 b and 68 b, `j=28` selected | at 67 → RC at 40 only (28 > 27); at 68 → **both** forward at 28 and RC at 40 |
-| E-10 | 128 contigs × 80 b | `cont_bytes == 1`; every decoded contig in range; contig 127 (max id) yields both strands with the id uncorrupted |
+| E-10 | 128 contigs × 80 b | `contig_strand_bytes == 1`; every decoded contig in range; contig 127 (max id) yields both strands with the id uncorrupted |
 | E-12 | 8 equal / 1 giant+20 small / 1 contig / workers>contigs | `split[0]=0`, `split[nw]=ncontig`, non-decreasing, every contig owned exactly once, `post[nw]==seqtot`; empty ranges legitimate |
 | E-13 | `maxctg=1.5M`, `ncontig=120` | `post=3`, `cont=1`, `record_size == 1+10+1+3+1 == 16` |
 
@@ -388,8 +388,8 @@ Also exercised end to end with a tiny `PGA_EXCHANGE_ROUND_BYTES` (small6 at
 ### R-03 · Position field representability — **confirmed empirically**
 
 RC records store `j + TMER` with `j` up to `len - TMER` (`src/extract.c:189`),
-so positions span `[0, maxctg]` — `maxctg + 1` values. `post_bytes` must
-satisfy `maxctg <= 256^post_bytes - 1`. Expectations derived from
+so positions span `[0, maxctg]` — `maxctg + 1` values. `position_bytes` must
+satisfy `maxctg <= 256^position_bytes - 1`. Expectations derived from
 representability, **not** from production `bytes_needed`.
 
 | `maxctg` | intended | current | |
@@ -407,15 +407,15 @@ short.
 **Extraction half (marked):** a 256-base contig with `j = 244` selected — the
 only offset that can yield RC position 256, since `j <= 244` and `j+12 >= 256`.
 The test asserts that precondition, then asserts the decoded RC position is 256.
-**Observed:** it decodes as **0**, truncated by `post_bytes = 1`.
+**Observed:** it decodes as **0**, truncated by `position_bytes = 1`.
 
-**Passing companion:** `cont_bytes` is correct at its boundaries (128 → 1 byte,
+**Passing companion:** `contig_strand_bytes` is correct at its boundaries (128 → 1 byte,
 129 → 2); the `2 *` factor in `bytes_needed(2 * ncontig)` already reserves the
-strand bit, so only `post_bytes` is affected.
+strand bit, so only `position_bytes` is affected.
 
 **Fix:** `bytes_needed(gdb->maxctg + 1)` or a representability-based helper.
 `record_size` is an internal binary width — `gold.tuples` is text and
-`gold.paf` is alignment output, neither encodes `post_bytes` — so this is **not**
+`gold.paf` is alignment output, neither encodes `position_bytes` — so this is **not**
 a reason to regenerate independent gold. Regenerate only artifacts that truly
 depend on the record format, and investigate any changed position or alignment
 as a real behavioural change rather than refreshing the reference.

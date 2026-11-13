@@ -48,12 +48,12 @@ static int64_t read_le_field(const uint8_t *bytes, int n)
 static void dump_records_as_tuples(FILE *out, const RecordBuffer *buf, int with_lcp)
 {
     int rsize       = buf->sizing.record_size;
-    int post_bytes  = buf->sizing.post_bytes;
-    int cont_bytes  = buf->sizing.cont_bytes;
+    int position_bytes  = buf->sizing.position_bytes;
+    int contig_strand_bytes  = buf->sizing.contig_strand_bytes;
     int pos_off     = POS_OFFSET;
-    int cont_off    = POS_OFFSET + post_bytes;
+    int cont_off    = POS_OFFSET + position_bytes;
 
-    int64_t strand_mask = ((int64_t) 1) << (8 * cont_bytes - 1);
+    int64_t strand_mask = ((int64_t) 1) << (8 * contig_strand_bytes - 1);
     int64_t contig_mask = strand_mask - 1;
 
     char line[128];
@@ -61,8 +61,8 @@ static void dump_records_as_tuples(FILE *out, const RecordBuffer *buf, int with_
     {
         const uint8_t *r = buf->data + i * rsize;
 
-        int64_t pos     = read_le_field(r + pos_off, post_bytes);
-        int64_t cont_v  = read_le_field(r + cont_off, cont_bytes);
+        int64_t pos     = read_le_field(r + pos_off, position_bytes);
+        int64_t cont_v  = read_le_field(r + cont_off, contig_strand_bytes);
         int     strand  = (cont_v & strand_mask) ? 1 : 0;
         int     contig  = (int) (cont_v & contig_mask);
 

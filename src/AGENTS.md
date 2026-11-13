@@ -9,8 +9,8 @@ Layering, innermost first: `constants.h` → `record`/`tables`/`pack`/`work_spli
 
 - One driver per phase; `pga-mpi-merge.c` is the final one and defines the
   FastGA externs (`NTHREADS`, `FREQ`, `IBYTE`, `NCONTS`, `RankForPair`, …) that
-  `fastga_pipeline.c` declares `extern`. Adding an extern means updating every
-  driver that links the pipeline (`pga-merge.c` too).
+  `fastga_pipeline.c` declares `extern`. Adding an extern means defining it
+  in `pga-mpi-merge.c`.
 - `fastga_pipeline.c` is lifted FastGA code, kept close to upstream on purpose.
   Match its brace and indentation style there rather than the surrounding code,
   and keep edits minimal so it stays diffable against FastGA.

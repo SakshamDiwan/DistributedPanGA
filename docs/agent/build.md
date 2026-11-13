@@ -15,7 +15,6 @@ script and not run.
 | `pga-sort` | literal `gcc` | `sort.c` |
 | `pga-mpi-stage1` | `$(CC)` | `sort.c dsort.c` |
 | `pga-mpi` | `$(CC)` | `sort.c dsort.c` |
-| `pga-merge` | literal `gcc` | `sort.c kmer_adapter.c fastga_pipeline.c` |
 | `pga-mpi-merge` | `$(CC)` | `sort.c dsort.c kmer_adapter.c fastga_pipeline.c contig_assignment.c` |
 
 Core (`CORE_SRCS`) is `extract.c pack.c tables.c work_split.c record.c`.
@@ -44,9 +43,8 @@ LCPS  ?= 1        # LCPS=1 appends -DLCPs
 - `-DLCPs` is the default and must stay on for anything compared against
   FastGA. It selects semantic-LCP recalculation in `recalc_all_lcps` and the
   cross-rank seam fixup; without it, byte 0 becomes a 0/1 boundary marker.
-- Because `CC` is only referenced by the three MPI recipes, **`CC=...` changes
-  nothing for `pga-extract`, `pga-sort`, or `pga-merge`** — those hardcode
-  `gcc`.
+- Because `CC` is only referenced by the MPI recipes, **`CC=...` changes
+  nothing for `pga-extract` or `pga-sort`** — those hardcode `gcc`.
 
 ## Environment on Perlmutter
 

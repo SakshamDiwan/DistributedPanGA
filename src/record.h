@@ -8,14 +8,21 @@
 // Record layout (FastGA-compatible, except we store ALL 10 k-mer bytes
 // instead of FastGA's 9 bytes with implicit-first-byte trick):
 //
-//   Byte 0:                          LCP placeholder (msd_sort fills this)
-//   Bytes 1..KBYTES:                 packed 40-mer (10 bytes), MSB-first within byte
-//   Byte KBYTES+1:                   mask placeholder (always 0; we don't support masking yet)
-//   Bytes KBYTES+2..+1+post_bytes:   position within contig, little-endian
-//   Bytes ...+1..+1+cont_bytes:      contig_id with strand bit in high position of last byte
+//   Byte  LCP_OFFSET (0):                 LCP: bases in common with the previous
+//                                         record's k-mer, [0,40]. Written by
+//                                         recalc_all_lcps (run_stage2), not msd_sort.
+//   Bytes KMER_OFFSET .. KBYTES (1..10):  packed 40-mer, 4 bases per byte, MSB-first
+//   Byte  MASK_OFFSET (11):               mask, always 0 (masking not supported)
+//   Bytes POS_OFFSET .. POS_OFFSET+position_bytes-1:
+//                                         position within contig, little-endian
+//   Bytes POS_OFFSET+position_bytes .. record_size-1:
+//                                         contig id, little-endian; the strand is
+//                                         the top bit of the last byte
 //
-// Total record size = 1 + KBYTES + 1 + post_bytes + cont_bytes.
-// For yeast (longest contig ~1.5M, ~120 contigs): post_bytes=3, cont_bytes=1, record_size=16.
+// record_size = 1 + KBYTES + 1 + position_bytes + contig_strand_bytes.
+// yeast7 (longest contig 1,566,853, 119 contigs): position_bytes=3,
+// contig_strand_bytes=1, record_size=16 -> position = bytes 12..14,
+// contig+strand = byte 15.
 
 #define LCP_OFFSET     0
 #define KMER_OFFSET    1
@@ -23,12 +30,13 @@
 #define POS_OFFSET     (1 + KBYTES + 1)
 
 typedef struct {
-    int post_bytes;
-    int cont_bytes;
+    int position_bytes;
+    int contig_strand_bytes;
     int record_size;
 } RecordSizing;
 
-// Compute PostBytes/ContBytes from GDB metadata.
+// Compute position_bytes, contig_strand_bytes and record_size from GDB metadata
+// (gdb->maxctg and gdb->ncontig).
 RecordSizing compute_record_sizing(GDB *gdb);
 
 #endif

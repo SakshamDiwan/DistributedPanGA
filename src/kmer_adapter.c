@@ -9,15 +9,15 @@ int build_kmer_adapter(const RecordBuffer *buf,
 {
     int64 nels       = buf->count;
     int   rec_size   = buf->sizing.record_size;
-    int   post_bytes = buf->sizing.post_bytes;
-    int   cont_bytes = buf->sizing.cont_bytes;
+    int   position_bytes = buf->sizing.position_bytes;
+    int   contig_strand_bytes = buf->sizing.contig_strand_bytes;
 
     T->kmer   = 40;
     T->minval = 1;
     T->ibyte  = 3;
     T->kbyte  = 10;
     T->hbyte  = T->kbyte - T->ibyte;                              // 7
-    T->pbyte  = T->hbyte + 1 + 1 + post_bytes + cont_bytes;       // 13
+    T->pbyte  = T->hbyte + 1 + 1 + position_bytes + contig_strand_bytes;       // 13
     T->tbyte  = T->ibyte + T->pbyte;                              // 16, used by Current_Entry
     T->nels   = nels;
     T->ixlen  = 1 << (8 * T->ibyte);
@@ -66,8 +66,8 @@ int build_kmer_adapter(const RecordBuffer *buf,
         dst += T->hbyte;
         *dst++ = 0;
         *dst++ = src[LCP_OFFSET];
-        memcpy(dst, src + POS_OFFSET, post_bytes + cont_bytes);
-        dst += post_bytes + cont_bytes;
+        memcpy(dst, src + POS_OFFSET, position_bytes + contig_strand_bytes);
+        dst += position_bytes + contig_strand_bytes;
     }
     if (current_run > max_run) max_run = current_run;
 
@@ -96,8 +96,8 @@ int build_kmer_adapter(const RecordBuffer *buf,
         T->cpre++;
     T->clone = 0;
     T->ctop = T->table + nels * T->pbyte;
-    P->pbyte = post_bytes + cont_bytes;
-    P->cbyte = cont_bytes;
+    P->pbyte = position_bytes + contig_strand_bytes;
+    P->cbyte = contig_strand_bytes;
     P->nels  = nels;
     P->maxp  = max_run + 1;
     P->freq  = 0;

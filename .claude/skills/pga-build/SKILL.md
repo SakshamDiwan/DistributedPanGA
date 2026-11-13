@@ -1,6 +1,6 @@
 ---
 name: pga-build
-description: Build DistributedPanGA targets on Perlmutter and diagnose stale-binary or flag-override problems. Use when asked to build, rebuild, or clean pga-extract, pga-sort, pga-mpi-stage1, pga-mpi, pga-merge, or pga-mpi-merge, or when a binary seems not to reflect a source or flag change.
+description: Build DistributedPanGA targets on Perlmutter and diagnose stale-binary or flag-override problems. Use when asked to build, rebuild, or clean pga-extract, pga-sort, pga-mpi-stage1, pga-mpi, or pga-mpi-merge, or when a binary seems not to reflect a source or flag change.
 ---
 
 Full reference, including verified compiler/MPI versions and both rebuild
@@ -12,7 +12,7 @@ pitfalls: `docs/agent/build.md`. Correctness constraints: `AGENTS.md`.
    `pga-mpi` is the distributed-sorting diagnostic. `make all` builds all six.
 2. Prefer the Cray wrapper, which matches the loaded `cray-mpich` module:
    `make CC=cc <target>`. Note `CC` affects only the three MPI targets —
-   `pga-extract`, `pga-sort` and `pga-merge` hardcode `gcc`.
+   `pga-extract` and `pga-sort` hardcode `gcc`.
 3. If a header (`src/*.h`), `LCPS`, or `CFLAGS` changed, force the rebuild:
    `make -B LCPS=1 <target>`. Headers and flags are **not** Makefile
    prerequisites, so plain `make` will report "up to date" and leave a stale

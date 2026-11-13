@@ -11,8 +11,8 @@
 // is initialized to hold all records (with the same RecordSizing as `local`);
 // on non-roots, `out` is left untouched.
 //
-// Both buffers must use the same RecordSizing (same record_size, post_bytes,
-// cont_bytes). Records are sent as MPI_BYTE; no custom datatype.
+// Both buffers must use the same RecordSizing (same record_size, position_bytes,
+// contig_strand_bytes). Records are sent as MPI_BYTE; no custom datatype.
 //
 // On return:
 //   - root rank: out->count = sum of all ranks' local->count, out->data

@@ -17,8 +17,8 @@
 //   byte 0                      LCP (bases shared with the previous record)
 //   bytes 1..10                 the packed 40-mer, 4 bases per byte
 //   byte 11                     mask byte, always 0 (masking unsupported)
-//   POS_OFFSET .. +post_bytes   position within the contig, LITTLE-endian
-//   .. +cont_bytes              contig id, little-endian, with the STRAND
+//   POS_OFFSET .. +position_bytes   position within the contig, LITTLE-endian
+//   .. +contig_strand_bytes              contig id, little-endian, with the STRAND
 //                               flag in the high bit of the field
 //
 // Note the two different byte orders in one record: the k-mer packs bases
@@ -31,7 +31,7 @@
 #include "record.h"
 #include "ref_syncmer.h"
 
-RecordSizing rs_make(int post_bytes, int cont_bytes);
+RecordSizing rs_make(int position_bytes, int contig_strand_bytes);
 
 // Allocate with count == capacity == n and exactly n*record_size + 1 bytes,
 // so msd_sort's sentinel write lands on the +1 byte and nowhere else.

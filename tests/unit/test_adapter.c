@@ -179,8 +179,8 @@ static void k02_widths(void)
     CHECK_EQ_I(T.tbyte, 16);
     CHECK_EQ_I(T.ixlen, 1 << 24);
     CHECK_EQ_I(T.nels,  buf.count);
-    CHECK_EQ_I(P.pbyte, SZ.post_bytes + SZ.cont_bytes);
-    CHECK_EQ_I(P.cbyte, SZ.cont_bytes);
+    CHECK_EQ_I(P.pbyte, SZ.position_bytes + SZ.contig_strand_bytes);
+    CHECK_EQ_I(P.cbyte, SZ.contig_strand_bytes);
 
     free(m); free_kmer_adapter(&T, &P); rb_free(&buf);
 }
@@ -216,7 +216,7 @@ static void k03_entry_layout(void)
     CHECK_EQ_I(T.table[8], 27);                // the record's LCP byte
     // then post+cont bytes verbatim from POS_OFFSET
     CHECK_MSG(memcmp(T.table + 9, buf.data + POS_OFFSET,
-                     (size_t) (SZ.post_bytes + SZ.cont_bytes)) == 0,
+                     (size_t) (SZ.position_bytes + SZ.contig_strand_bytes)) == 0,
               "position/contig bytes not copied verbatim");
 
     free_kmer_adapter(&T, &P); rb_free(&buf);

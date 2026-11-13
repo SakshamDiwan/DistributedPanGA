@@ -3,12 +3,12 @@
 #include "rec_build.h"
 #include "constants.h"
 
-RecordSizing rs_make(int post_bytes, int cont_bytes)
+RecordSizing rs_make(int position_bytes, int contig_strand_bytes)
 {
     RecordSizing s;
-    s.post_bytes  = post_bytes;
-    s.cont_bytes  = cont_bytes;
-    s.record_size = 1 + KBYTES + 1 + post_bytes + cont_bytes;
+    s.position_bytes  = position_bytes;
+    s.contig_strand_bytes  = contig_strand_bytes;
+    s.record_size = 1 + KBYTES + 1 + position_bytes + contig_strand_bytes;
     return s;
 }
 
@@ -41,7 +41,7 @@ void rb_free(RecordBuffer *b)
 void rb_set(RecordBuffer *b, int64_t i, const uint8_t *kmer,
             int64_t pos, int contig, int strand, uint8_t lcp)
 {
-    int      pb = b->sizing.post_bytes, cb = b->sizing.cont_bytes;
+    int      pb = b->sizing.position_bytes, cb = b->sizing.contig_strand_bytes;
     uint8_t *r  = b->data + i * b->sizing.record_size;
     int64_t  cv = contig;
     int      k;
@@ -59,7 +59,7 @@ void rb_set(RecordBuffer *b, int64_t i, const uint8_t *kmer,
 // whatever remains below it -- hence masking rather than shifting.
 void rb_decode(const RecordBuffer *b, int64_t i, RefRec *out, uint8_t *lcp_out)
 {
-    int            pb = b->sizing.post_bytes, cb = b->sizing.cont_bytes;
+    int            pb = b->sizing.position_bytes, cb = b->sizing.contig_strand_bytes;
     const uint8_t *r  = b->data + i * b->sizing.record_size;
     int64_t        pos = 0, cv = 0, mask;
     int            k;

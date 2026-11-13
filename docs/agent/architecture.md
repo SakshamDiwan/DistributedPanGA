@@ -12,8 +12,7 @@ comment contradicts the code, the code is described.
 | 2 | `pga-sort` | `src/pga-sort.c` | `sort_records` (msd_sort) |
 | 3 stage 1 | `pga-mpi-stage1` | `src/pga-mpi-stage1.c` | gather-to-rank-0 baseline |
 | 3 stage 2 | `pga-mpi` | `src/pga-mpi.c` | `run_stage2` distributed sort |
-| 4 | `pga-merge` | `src/pga-merge.c` | single-rank adapter + FastGA merge/align |
-| 4b | `pga-mpi-merge` | `src/pga-mpi-merge.c` | distributed merge + alignment (**final**) |
+| 4 | `pga-mpi-merge` | `src/pga-mpi-merge.c` | distributed merge + alignment (**final**) |
 
 `pga-mpi` is the distributed-sorting diagnostic; it stops after the sort and
 dumps tuples. `pga-mpi-merge` is the end-to-end executable and takes exactly
@@ -58,15 +57,15 @@ one argument, `<gdb-stem>` — no thread or frequency flags.
 offset 0                      LCP byte        (semantic, [0,40])
 offset 1 .. KBYTES            packed 40-mer   (10 bytes)
 offset 1+KBYTES               mask byte       (always 0; masking unsupported)
-offset POS_OFFSET             position        (post_bytes, little-endian)
-offset POS_OFFSET+post_bytes  contig+strand   (cont_bytes, little-endian)
+offset POS_OFFSET             position        (position_bytes, little-endian)
+offset POS_OFFSET+position_bytes  contig+strand   (contig_strand_bytes, little-endian)
 ```
 
-`record_size = 1 + KBYTES + 1 + post_bytes + cont_bytes`.
-`compute_record_sizing` derives `post_bytes` from `gdb->maxctg` and
-`cont_bytes` from `2 * gdb->ncontig` (the factor 2 reserves the strand bit).
+`record_size = 1 + KBYTES + 1 + position_bytes + contig_strand_bytes`.
+`compute_record_sizing` derives `position_bytes` from `gdb->maxctg` and
+`contig_strand_bytes` from `2 * gdb->ncontig` (the factor 2 reserves the strand bit).
 Strand lives in the **high bit of the last contig byte**
-(`1 << (8*cont_bytes - 1)`). For yeast7: `post_bytes=3, cont_bytes=1,
+(`1 << (8*contig_strand_bytes - 1)`). For yeast7: `position_bytes=3, contig_strand_bytes=1,
 record_size=16`.
 
 Buffers are allocated as `capacity * record_size + 1`; the trailing byte is
@@ -130,7 +129,7 @@ the call site, so field order and widths are load-bearing.
 
 - `ibyte = 3` → prefix is k-mer bytes 0..2, held implicitly in `cpre`;
   `hbyte = kbyte - ibyte = 7` suffix bytes are stored per entry.
-- `pbyte = hbyte + 1 + 1 + post_bytes + cont_bytes` (= 13 for yeast7);
+- `pbyte = hbyte + 1 + 1 + position_bytes + contig_strand_bytes` (= 13 for yeast7);
   `tbyte = ibyte + pbyte` (= 16) is the width `Current_Entry` emits.
 - Table layout per entry: 7 suffix bytes, `0` (mask), the record's LCP byte,
   then position+contig bytes copied verbatim.
@@ -184,7 +183,7 @@ ranks. All three pairs tie on weight, so `(i,j)` order is
 
 Driver-set externs of note: `NTHREADS = 1`, `NPARTS = 1`, `SELF = 1`,
 `FREQ = 10`, `CHAIN_BREAK = 2000`, `CHAIN_MIN = 170`, `ALIGN_MIN = 100`,
-`ALIGN_RATE = 0.3`. `pga-merge.c` sets the same `NTHREADS=1`/`FREQ=10`.
+`ALIGN_RATE = 0.3`.
 
 ### Seed emission and routing
 

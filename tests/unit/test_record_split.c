@@ -50,7 +50,7 @@ static int bytes_for_max_value(int64_t max_value)
     return b ? b : 1;                      // a 0-byte field can represent nothing
 }
 
-// R-03 (width half) -- post_bytes must be able to hold every position that
+// R-03 (width half) -- position_bytes must be able to hold every position that
 //                       extraction can actually emit.
 //
 // FIXED.  This table was landed as an expected failure stating the CORRECT
@@ -64,7 +64,7 @@ static int bytes_for_max_value(int64_t max_value)
 //     largest stored position = (len - 12) + 12 = len = maxctg
 //
 // Positions therefore span [0, maxctg] INCLUSIVE -- maxctg + 1 distinct
-// values -- and the field must satisfy maxctg <= 256^post_bytes - 1.
+// values -- and the field must satisfy maxctg <= 256^position_bytes - 1.
 //
 // The off-by-one only bites when maxctg is an exact power of 256, because only
 // then does the extra value cross a byte boundary.  At maxctg = 256 the field
@@ -72,7 +72,7 @@ static int bytes_for_max_value(int64_t max_value)
 //
 // test_extract.c contains the other half of R-03: a real 256-base contig whose
 // emitted position 256 is observed decoding as 0.
-static void r03_post_bytes_representability(void)
+static void r03_position_bytes_representability(void)
 {
     struct { int64_t maxctg; int intended; } cases[] = {
         {     1, 1 }, {   255, 1 }, {   256, 2 }, {   257, 2 },
@@ -82,14 +82,14 @@ static void r03_post_bytes_representability(void)
 
     for (i = 0; i < (int) (sizeof cases / sizeof cases[0]); i++) {
         int64_t m   = cases[i].maxctg;
-        int     got = sizing_for(m, 8).post_bytes;
+        int     got = sizing_for(m, 8).position_bytes;
         int     want = cases[i].intended;
 
         CHECK_MSG(bytes_for_max_value(m) == want,
                   "table self-check failed for maxctg=%lld", (long long) m);
 
         CHECK_MSG(got == want,
-                  "maxctg=%lld: post_bytes=%d, need %d to hold position %lld",
+                  "maxctg=%lld: position_bytes=%d, need %d to hold position %lld",
                   (long long) m, got, want, (long long) m);
     }
 }
@@ -97,32 +97,32 @@ static void r03_post_bytes_representability(void)
 // The neighbouring field is CORRECT, and this pins that so the R-03 fix does
 // not "helpfully" change it too.
 //
-// cont_bytes = bytes_needed(2 * ncontig).  The factor of 2 looks arbitrary but
+// contig_strand_bytes = bytes_needed(2 * ncontig).  The factor of 2 looks arbitrary but
 // is exactly right: the strand flag occupies the field's top bit, so the ids
 // only have 8*b - 1 bits available, and doubling the count reserves that bit.
 //   ncontig = 128 -> 2*128 = 256 -> 1 byte: ids 0..127 in bits 0..6, strand
 //                    in bit 7.  The tightest legal fit.
 //   ncontig = 129 -> 2*129 = 258 -> 2 bytes, correctly.
-static void r03_cont_bytes_ok(void)
+static void r03_contig_strand_bytes_ok(void)
 {
     // ids 0..ncontig-1 must fit below the strand bit at 8*b - 1.
-    CHECK_EQ_I(sizing_for(1000, 127).cont_bytes, 1);
-    CHECK_EQ_I(sizing_for(1000, 128).cont_bytes, 1);   // ids 0..127 + bit 7
-    CHECK_EQ_I(sizing_for(1000, 129).cont_bytes, 2);
-    CHECK_EQ_I(sizing_for(1000,   1).cont_bytes, 1);
+    CHECK_EQ_I(sizing_for(1000, 127).contig_strand_bytes, 1);
+    CHECK_EQ_I(sizing_for(1000, 128).contig_strand_bytes, 1);   // ids 0..127 + bit 7
+    CHECK_EQ_I(sizing_for(1000, 129).contig_strand_bytes, 2);
+    CHECK_EQ_I(sizing_for(1000,   1).contig_strand_bytes, 1);
 }
 
 // E-13 -- record_size is the sum of its parts, for the shape real data takes.
 //
 // Layout (src/record.h): 1 LCP byte + 10 k-mer bytes + 1 mask byte, then the
 // two variable-width fields.  For a yeast-sized genome (largest contig ~1.5 M
-// bases, ~120 contigs) that gives post_bytes 3 and cont_bytes 1, hence
+// bases, ~120 contigs) that gives position_bytes 3 and contig_strand_bytes 1, hence
 // record_size 16 -- the shape most of the other tests use as their fixture.
 static void e13_record_size(void)
 {
     RecordSizing s = sizing_for(1500000, 120);
-    CHECK_EQ_I(s.post_bytes, 3);
-    CHECK_EQ_I(s.cont_bytes, 1);
+    CHECK_EQ_I(s.position_bytes, 3);
+    CHECK_EQ_I(s.contig_strand_bytes, 1);
     CHECK_EQ_I(s.record_size, 1 + KBYTES + 1 + 3 + 1);
     CHECK_EQ_I(s.record_size, 16);
 }
@@ -221,8 +221,8 @@ static void e12_work_split(void)
 int main(void)
 {
     printf("test_record_split\n");
-    RUN(r03_post_bytes_representability);
-    RUN(r03_cont_bytes_ok);
+    RUN(r03_position_bytes_representability);
+    RUN(r03_contig_strand_bytes_ok);
     RUN(e13_record_size);
     RUN(e12_work_split);
     return t_report("test_record_split");

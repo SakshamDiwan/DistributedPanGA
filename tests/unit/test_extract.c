@@ -411,12 +411,12 @@ static void e09_both_orientations_boundary(void)
 // E-10 -- Strand rides in the top bit of the contig field without corrupting
 //          the contig id, even at the largest id that field can hold.
 //
-// Contract (src/record.h): the contig field is `cont_bytes` bytes, stored
+// Contract (src/record.h): the contig field is `contig_strand_bytes` bytes, stored
 // little-endian, and the strand flag is packed into the HIGH bit of that
-// field:  value = contig_id | (strand << (8*cont_bytes - 1)).
+// field:  value = contig_id | (strand << (8*contig_strand_bytes - 1)).
 //
-// Fixture: 128 contigs.  compute_record_sizing derives cont_bytes from
-// 2*ncontig = 256, giving cont_bytes = 1.  That is the tightest legal fit:
+// Fixture: 128 contigs.  compute_record_sizing derives contig_strand_bytes from
+// 2*ncontig = 256, giving contig_strand_bytes = 1.  That is the tightest legal fit:
 // ids 0..127 occupy bits 0..6 and the strand flag takes bit 7.  Contig 127 is
 // therefore the maximum id, and the one where a sign-extension or masking
 // mistake would show up -- decoding it must give exactly (127, strand), not
@@ -437,7 +437,7 @@ static void e10_strand_roundtrip(void)
     CHECK(synth_gdb_build(&sg, seqs, NC) == 0);
     s = compute_record_sizing(&sg.gdb);
     // 2*ncontig = 256 -> 1 byte: ids 0..127 in bits 0..6, strand in bit 7.
-    CHECK_EQ_I(s.cont_bytes, 1);
+    CHECK_EQ_I(s.contig_strand_bytes, 1);
 
     extract_list(&sg, &got);
     for (i = 0; i < got.n; i++) {
@@ -462,8 +462,8 @@ static void e10_strand_roundtrip(void)
 // FIXED.  Landed as an expected failure asserting the CORRECT behaviour; the
 // marker was removed only after src/record.c was corrected and this XPASSed.
 //
-// The defect was: positions are stored in `post_bytes` bytes, and
-// compute_record_sizing sets post_bytes = bytes_needed(maxctg).  But the
+// The defect was: positions are stored in `position_bytes` bytes, and
+// compute_record_sizing sets position_bytes = bytes_needed(maxctg).  But the
 // largest position actually emitted is maxctg, not maxctg-1, because an RC
 // record stores j + TMER and j can reach len - TMER:
 //
@@ -497,7 +497,7 @@ static void r03_position_256_extraction(void)
     CHECK(synth_gdb_build(&sg, seqs, 1) == 0);
     s = compute_record_sizing(&sg.gdb);
     CHECK_EQ_I(sg.gdb.maxctg, 256);
-    printf("      [fixture seed=%u, maxctg=256, post_bytes=%d]\n", seed, s.post_bytes);
+    printf("      [fixture seed=%u, maxctg=256, position_bytes=%d]\n", seed, s.position_bytes);
 
     extract_list(&sg, &got);
     for (i = 0; i < got.n; i++) {
@@ -509,8 +509,8 @@ static void r03_position_256_extraction(void)
 
     CHECK_MSG(at256 == 1,
               "expected exactly one RC record at position 256, got %lld "
-              "(and %lld at position 0, i.e. truncated by post_bytes=%d)",
-              (long long) at256, (long long) at0, s.post_bytes);
+              "(and %lld at position 0, i.e. truncated by position_bytes=%d)",
+              (long long) at256, (long long) at0, s.position_bytes);
 
     ref_list_free(&got); synth_gdb_free(&sg); free(seq);
 }
