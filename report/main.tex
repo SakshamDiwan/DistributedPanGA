@@ -1,0 +1,108 @@
+%% Springer Nature article template (sn-jnl), clean skeleton
+%% Sections follow the Bioinformatics (OUP) Original Paper structure
+%% Reference style options: sn-nature, sn-basic, sn-mathphys-num, sn-mathphys-ay,
+%% sn-aps, sn-vancouver-num, sn-vancouver-ay, sn-apacite, sn-chicago
+%% (see user-manual.pdf)
+
+% sn-jnl loads geometry internally, so pass options before \documentclass
+\PassOptionsToPackage{margin=1in}{geometry}
+
+\documentclass[pdflatex,sn-nature]{sn-jnl}
+
+%%%% Packages
+\usepackage{graphicx}
+\usepackage{multirow}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{amsthm}
+\usepackage{mathrsfs}
+\usepackage[title]{appendix}
+\usepackage[table]{xcolor}
+\usepackage{textcomp}
+\usepackage{manyfoot}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algorithmicx}
+\usepackage{algpseudocode}
+\usepackage{listings}
+
+%%%% Theorem styles
+\theoremstyle{thmstyleone}
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\theoremstyle{thmstyletwo}
+\newtheorem{example}{Example}
+\newtheorem{remark}{Remark}
+\theoremstyle{thmstylethree}
+\newtheorem{definition}{Definition}
+
+\raggedbottom
+
+\begin{document}
+
+\title[Short Title]{Article Title}
+
+%% \author* and \affil* mark the corresponding author and affiliation.
+\author[1]{\fnm{Saksham} \sur{Diwan}}\email{sd966@cornell.edu}
+
+\author[1]{\fnm{Harshaan} \sur{Chugh}}\email{hsc53@cornell.edu}
+
+\author[2]{\fnm{Shuo} \sur{Cao}}
+
+\author*[2]{\fnm{Erik} \sur{Garrison}}\email{egarris5@uthsc.edu}
+
+\author*[1,3]{\fnm{Giulia} \sur{Guidi}}\email{gg434@cornell.edu}
+
+\affil*[1]{\orgdiv{Department of Computer Science}, \orgname{Cornell University}, \orgaddress{\street{107 Hoy Rd}, \city{Ithaca}, \postcode{14853}, \state{New York}, \country{USA}}}
+
+\affil*[2]{\orgdiv{Department of Genetics, Genomics and Informatics}, \orgname{University of Tennessee Health Science Center}, \orgaddress{\city{Memphis}, \postcode{38163}, \state{Tennessee}, \country{USA}}}
+
+\affil[3]{\orgdiv{Applied Mathematics and Computational Research Division}, \orgname{Lawrence Berkeley National Laboratory}, \orgaddress{\street{1 Cyclotron Road}, \city{Berkeley}, \postcode{94720}, \state{California}, \country{USA}}}
+
+%% Bioinformatics structured abstract (150 words recommended in total)
+\abstract{\textbf{Motivation:} Motivation text.
+
+\textbf{Results:} Results text.
+
+\textbf{Availability and Implementation:} Full URL of the software and data, license, and implementation details.
+
+\textbf{Contact:} egarris5@uthsc.edu, gg434@cornell.edu
+
+\textbf{Supplementary Information:} Supplementary data are available at \textit{Bioinformatics} online.}
+
+\maketitle
+
+%% Original Paper: up to 7 pages (approx. 5,000 words, excluding figures).
+%% Section order: Introduction, System and methods, Algorithm,
+%% Implementation, Discussion, References.
+
+\input{sec/introduction}
+\input{sec/methods}
+\input{sec/algorithm}
+\input{sec/implementation}
+\input{sec/discussion}
+
+\backmatter
+
+\bmhead{Acknowledgements}
+
+\bmhead{Author contributions}
+
+%% CRediT roles, e.g. First Author (Conceptualization, Software, Writing---original draft)
+
+\bmhead{Supplementary data}
+
+Supplementary data are available at \textit{Bioinformatics} online.
+
+\bmhead{Conflict of interest}
+
+None declared.
+
+\bmhead{Funding}
+
+This work was supported by the Full Agency Name [grant number xxxx].
+
+\bmhead{Data availability}
+
+\bibliography{ref}
+
+\end{document}
