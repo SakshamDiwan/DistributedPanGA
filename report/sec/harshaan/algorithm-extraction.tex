@@ -1,0 +1,26 @@
+%% =====================================================================
+%% Algorithm / Seed extraction -- owner: Harshaan.
+%% =====================================================================
+
+\subsection{Seed extraction}\label{sec:alg:extraction}
+
+Extraction reproduces FastGA's seed selection exactly. Each rank streams its
+contigs in windows of up to 10\,Mbp and slides over every 12-mer, comparing
+the canonical 8-mers it contains. A position is selected when the smallest
+8-mer lies at either end of the 12-mer (a closed syncmer); ties are kept, as
+in FastGA.
+% CHECK: syncmer terminology against the FastGA paper.
+
+Each selected position yields two records: the forward 40-mer starting at
+the position and the reverse-complement 40-mer that ends 12 bases after it.
+A record stores the 2-bit packed k-mer together with its contig, position
+and strand. Per-occurrence records are required because seeds are pairs of
+positions; k-mer counts alone cannot produce alignments.
+
+The 40 bases of a k-mer may cross the boundary between two scan windows.
+Every window after the first therefore also holds the 40 bases that precede
+it, which covers all reverse-complement k-mers and all forward k-mers that
+start before the window. Only a forward k-mer that runs past the right edge
+of a non-final window is read separately from the GDB. The selection loop,
+the selected positions and the order in which records are emitted are
+identical for every window size.

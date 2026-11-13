@@ -1,0 +1,32 @@
+%% =====================================================================
+%% Algorithm / Data movement -- owner: Harshaan (design level only).
+%% Saksham owns the O2/O4 implementation text; keep code-level detail there.
+%% Describes the CURRENT pipeline: in-memory seeds (commit bce56a4).
+%% =====================================================================
+
+\subsection{Data movement between ranks}\label{sec:alg:mpi}
+
+The pipeline moves data between ranks twice. In the distributed sort, each
+record is assigned to one of 1{,}024 buckets by the first five bases of its
+k-mer. A global histogram, obtained by a single reduction, gives every rank
+the same bucket counts, and each rank takes a contiguous range of buckets
+holding about $1/P$ of the records. After the exchange, each rank sorts its
+records and recomputes the longest-common-prefix values at the boundaries
+with its neighbours, so the slices together form the global sorted index.
+
+In seed redistribution, each seed is sent to the rank that owns its contig
+pair. Every rank computes the same pair-to-rank map independently from the
+contig lengths, by assigning pairs in decreasing order of length product to
+the least-loaded rank. No communication is needed to agree on it.
+
+Both exchanges are personalized all-to-all transfers of fixed-size records,
+which can exceed the 32-bit counts of \texttt{MPI\_Alltoallv} (about 2\,GiB
+per rank). We therefore track sizes in 64 bits and, when a transfer exceeds
+a per-round budget, split it into rounds. Each round sends at most a fixed
+number of whole records to each peer, and every slice is written at its
+final offset in the receive buffer. The received bytes are therefore
+identical to those of a single unbounded exchange, independent of the number
+of rounds, while staging memory is bounded by the budget. Seeds are held in
+memory throughout, so the send and receive seed buffers coexist during
+redistribution (Section~\ref{sec:implementation}).
+% CHECK with Saksham: last sentence vs. his O4 subsection (avoid overlap).

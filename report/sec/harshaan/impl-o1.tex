@@ -1,0 +1,28 @@
+%% =====================================================================
+%% Implementation / Extraction I/O (O1) -- owner: Harshaan.
+%% No numbers here: measured results belong in the evaluation.
+%% =====================================================================
+
+\subsection{Extraction I/O}\label{sec:impl:o1}
+
+Per-rank timers showed that extraction dominated early runs and scaled
+poorly with the number of ranks. System-call tracing located the cause in the
+packing step. The scan already held the current window in memory, but the
+40 bases of each selected k-mer were read again from the GDB, which costs
+one file seek per record.
+
+We now pack each k-mer directly from the window buffer, reading from the
+GDB only in the boundary case of Section~\ref{sec:alg:extraction}; the
+window refill was extended by 40 bases of left context. Both paths use the same
+packing routine, and the selection loop is unchanged, so the change affects
+only where bases are read from.
+
+We validated the change at three levels. The extraction output is
+byte-identical to the previous implementation and to a reference dump from
+an instrumented copy of FastGA's index builder. Unit tests run with a 64-base
+window to force many boundary cases, check that both packing paths are
+exercised and together account for every record, and also run under address
+and undefined-behaviour sanitizers. Finally, end-to-end runs match the
+FastGA reference alignments.
+% TODO(Harshaan): extraction speedups go in the evaluation, not here
+%   (historical numbers: author-notes/harshaan-evidence.txt E2).

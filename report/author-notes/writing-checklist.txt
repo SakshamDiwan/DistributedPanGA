@@ -1,0 +1,22 @@
+WRITE NOW (evidence complete, no dependencies)
+ [ ] 3.1 Seed extraction       sec/harshaan/algorithm-extraction.tex  (5 paras)
+ [ ] 4.1 Extraction I/O        sec/harshaan/impl-o1.tex               (3 paras)
+ [ ] 2.4 Correctness criterion sec/harshaan/methods.tex P6            (1 para)
+ [ ] 2.1-2.3 FastGA / overview / pipeline  methods.tex P1,P3-P5
+       needs: FastGA paper citation (not in ref.bib yet), diagram (spec file)
+ [ ] 3.2 Data movement         sec/harshaan/algorithm-mpi.tex
+       needs: agree with Saksham where 3.2 ends and his O2/O4 text starts (Q4)
+
+WRITE AFTER A DECISION
+ [ ] 5.3 Future work           disc-future.tex   needs Q2 (O3) + Q3 (O5)
+ [ ] 2.1 P2 motivation         overlaps Saksham's Intro; keep 1-2 sentences
+
+WRITE AFTER DATA
+ [ ] 5.2 Human-scale           disc-human.tex    needs human jobs (pick branch A/B/C)
+ [ ] Results: human            results-human.tex (not \input yet; Q1)
+ [ ] 5.1 Scaling bottlenecks   disc-scaling.tex  joint with Saksham, after data
+
+NOT YOURS (leave alone): Intro, distributed alignment approach (Alg),
+O2/O4 implementation, small-dataset results + interpretation, title,
+abstract, authors, back matter, shared conclusions.
+scerevisiae8 is optional for the main paper (Nov 13).

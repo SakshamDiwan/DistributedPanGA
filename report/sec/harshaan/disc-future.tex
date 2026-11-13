@@ -1,0 +1,34 @@
+%% =====================================================================
+%% Discussion / Limitations and future work -- owner: Harshaan.
+%% No HySortK here (Nov 13 decision). No O3/O5 labels: research-plan.md
+%% and later docs disagree on what O3 means; O5 (GPU) is not discussed.
+%% Nothing below is implemented.
+%% =====================================================================
+
+\subsection{Limitations and future work}\label{sec:disc:future}
+
+Alignment is now the dominant stage, and its cost is unevenly distributed
+across ranks. The time of an alignment task follows the amount of sequence
+it aligns, which is not known in advance and is poorly predicted by seed
+counts or contig lengths. This suggests replacing the static assignment of
+contig pairs with dynamic scheduling, in which ranks take the next task from
+a shared queue as they become free.
+% CHECK: "dominant" + "poorly predicted" come from decision-gate-2
+%        (primates); keep qualitative here, numbers in the evaluation.
+
+Scheduling alone has a limit: each contig pair is aligned by one rank, and
+self-alignments of long contigs are the largest tasks. Scaling further
+requires splitting such a task across ranks while producing exactly
+FastGA's alignments. This is an open problem.
+
+Two implementation limits also bound scale. The pair-to-rank map uses 8-bit
+entries, which caps the number of ranks at 127, and extraction partitions
+work at whole-contig boundaries.
+
+Finally, exact validation at human scale requires an independent
+single-node FastGA reference, whose cost grows rapidly with the number of
+haplotypes. Agreement between runs at different rank counts is weaker
+evidence than agreement with FastGA, because it shares any error of our
+own pipeline.
+% TODO(Harshaan): Add human results and interpretation after validation
+%   (branches A/B/C in disc-human.tex; checklist in author-notes).

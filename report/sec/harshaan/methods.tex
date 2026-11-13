@@ -1,0 +1,51 @@
+%% =====================================================================
+%% System and methods -- owner: Harshaan.
+%% =====================================================================
+
+\subsection{FastGA}\label{sec:methods:fastga}
+% TODO(Harshaan): cite FastGA (no verified BibTeX entry yet).
+
+FastGA aligns genome assemblies on a single shared-memory node. It first
+converts the input FASTA into a compact sequence database (GDB) and builds a
+genome index (GIX): the sorted list of syncmer-selected 40-mers together with
+the position, contig and strand of every occurrence. Seeds are found by
+merging the index with itself, keeping matches whose k-mers occur at most a
+fixed number of times (10 by default). Seeds are then grouped by contig pair
+and diagonal, extended into local alignments, and written in FastGA's
+\texttt{.1aln} format, which \texttt{ALNtoPAF} converts to PAF.
+% CHECK: use FastGA's own name for its adaptive seed merge when citing.
+
+\subsection{DistributedPanGA}\label{sec:methods:overview}
+
+DistributedPanGA computes the same self-alignment as FastGA with $P$ MPI
+ranks. All ranks open the same GDB on a shared file system and read sequence
+on demand, so no sequence data is broadcast. The pipeline has six stages.
+\begin{enumerate}
+\item \textbf{Extraction.} Each rank scans a contiguous range of whole
+  contigs and emits one record per selected k-mer occurrence.
+\item \textbf{Distributed sort.} Records are exchanged by k-mer prefix and
+  sorted locally, so that the concatenation of all ranks' slices is
+  FastGA's sorted index.
+\item \textbf{Seed generation.} Each rank runs FastGA's seed merge on its
+  own slice.
+\item \textbf{Seed redistribution.} Every contig pair is owned by exactly
+  one rank, and each seed is sent to the owner of its pair.
+\item \textbf{Alignment.} Each rank sorts its seeds and aligns its own
+  contig pairs with FastGA's code.
+\item \textbf{Output.} Each rank converts its alignments to PAF; the union
+  of the per-rank files is the result.
+\end{enumerate}
+
+Selection, seed merging and alignment are FastGA code, kept close to the
+original so that it can be compared with upstream. The distributed parts
+are new: the extraction partition, the distributed sort, an adapter that
+presents a rank's slice through FastGA's index interface, the deterministic
+assignment of contig pairs to ranks, and the two all-to-all exchanges
+(Section~\ref{sec:alg:mpi}).
+
+Our correctness criterion is exact agreement with an independent
+single-node FastGA run on the same GDB. Both PAF files are sorted
+lexicographically, keeping duplicate lines, and compared byte for byte.
+This multiset equality is stronger than matching alignment counts.
+% CHECK: state the FastGA commit (178afcb) in the experimental setup,
+%        wherever that paragraph ends up (open-questions.txt Q1).

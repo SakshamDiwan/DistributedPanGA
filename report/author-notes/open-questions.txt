@@ -1,0 +1,24 @@
+Q1 (Saksham/Giulia) No Results section in the template. Where do results go:
+   new "Results" section, or evaluation subsections in Implementation?
+   results-human.tex is ready but not \input until decided. Also: who
+   writes the experimental-setup paragraph (Perlmutter, build, placement)?
+Q2 (Giulia) O3 has two meanings: research-plan.md = seed-density-aware
+   static assignment; later docs = dynamic alignment-task scheduling.
+   Which does the proposal mean? Future work currently covers both.
+Q3 (Giulia) O5 = GPU (deferred, out of scope on m4341) in research-plan.md.
+   List GPU as future work, or does O5 mean something else in the proposal?
+Q4 (Saksham) Boundary between my 3.2 (exchange design) and his O2/O4
+   implementation text. Proposal: 3.2 = what moves + why exact + memory
+   bound; his = code-level O2/O4 + measurements.
+Q5 (Saksham) Why chunked MPI_Alltoallv instead of MPI-4 MPI_Alltoallv_c?
+   Mention only with a real reason (portability? Cray MPICH support?).
+Q6 (all) AI use: personal report for now. If it is ever submitted, check the
+   journal's AI-use and disclosure rules (OUP requires a declaration).
+Q7 (all) Template: sn-jnl (Springer) vs OUP's own. Migrate before
+   submission? (Not done; Original Paper limit: 7 pages / ~5,000 words.)
+Q8 (Saksham, ALN stage) Should the paper mention the external ALNtoPAF
+   step and its time limit, or treat PAF conversion as part of FastGA?
+Q9 (Saksham) Stale docs after O4: AGENTS.md says seed exchange streams
+   "file -> file"; pga-mpi-merge.c:9 says "files". Fix in a separate PR?
+References to add (none added; verify DOIs first): FastGA, PGGB/dataset
+   source (Zenodo 7937947), MPI standard. HySortK only outside 5.3.

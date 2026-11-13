@@ -1,0 +1,26 @@
+%% =====================================================================
+%% Discussion / Scaling bottlenecks -- JOINT (Harshaan + Saksham).
+%% Outline + evidence checklist only. No interpretation until we both
+%% look at the data (incl. human). AUTHOR NOTES ONLY.
+%% =====================================================================
+\input{sec/harshaan/macros}
+
+\subsection{Scaling bottlenecks}\label{sec:disc:scaling}
+
+\hctodo{Joint with Saksham -- interpret together after the human runs.}
+%% OUTLINE
+%%  1 Which stages were bottlenecks and are no longer (extraction I/O,
+%%    >2 GiB exchanges) -- one sentence each, refer to Methods/Impl.
+%%  2 What dominates now (alignment) and why: imbalance + largest task.
+%%  3 Memory as the other scaling limit (stage 2 arrays; O4 seed residency).
+%%  4 What this means for human scale (after data).
+%% EVIDENCE CHECKLIST (have / need)
+%%  [have] primates14 N=16 vs N=32 wall, stage CSV, imbalance (gate 2)
+%%  [have] per-task alignment times + feature fits (gate 2)
+%%  [have] per-stage memory peaks pre-O4 ([pr1-mem], job 59717508)
+%%  [need] same metrics on the current (O4) binary for primates14
+%%  [need] human pilot stage times + per-rank memory + imbalance
+%%  [need] Saksham's small-dataset results (his section) to avoid
+%%         contradicting numbers
+%%  [need] agreed metric definitions: wall vs CSV total_s (sum of per-stage
+%%         maxima), MB vs MiB

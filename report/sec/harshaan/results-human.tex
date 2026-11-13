@@ -1,0 +1,20 @@
+%% =====================================================================
+%% Results / Human experiments + correctness -- owner: Harshaan.
+%% NOT \input ANYWHERE YET: the template has no Results section
+%% (Intro, System and methods, Algorithm, Implementation, Discussion).
+%% Where results go is an author decision (open-questions Q1).
+%% =====================================================================
+\input{sec/harshaan/macros}
+
+\subsection{Human chromosome 6}\label{sec:results:human}
+
+\hctodo{Waiting on human jobs. Fill from logs, not from estimates.}
+%% Fields to report (source):
+%%  - input: Gbp, haplotypes, contigs (02_index log input summary)
+%%  - FastGA gold: wall, max RSS (sacct), alignment count (MANIFEST)
+%%  - DistributedPanGA: nodes/ranks/-c, wall, per-stage CSV
+%%    (pga-mpi-merge.timing.csv), per-rank peak (time.rank*, [pr1-mem]),
+%%    alignment imbalance (analyze_align_balance.py), rounds
+%%  - correctness: MATCH/DIFFER line from 04_pilot log
+%%  - binary: commit + sha256 logged at job start
+%%  - n = 1 for everything -> say so
