@@ -1,0 +1,30 @@
+%% =====================================================================
+%% Implementation / Large-count exchanges (O2) -- owner: Harshaan.
+%% Verified against src/chunked_exchange.[ch], src/dsort.c,
+%% src/pga-mpi-merge.c. Evidence: tests/CATALOG.md R-06,
+%% docs/agent/pr2-results.md. Code walkthrough: docs/agent/o2-explained.md.
+%% =====================================================================
+
+\subsection{Large-count exchanges}\label{sec:impl:o2}
+
+Both exchanges originally used one \texttt{MPI\_Alltoallv}, whose 32-bit
+counts made a rank abort above $2^{31}-1$ bytes; primates4.chr6 could not
+run at small rank counts.
+
+Both now use one routine. Ranks exchange per-peer sizes as 64-bit integers
+and agree on the smallest per-round budget (1\,GiB by default). If every
+rank's totals fit, a single \texttt{MPI\_Alltoallv} is used as before.
+Otherwise each peer's data moves in rounds of at most $c$ bytes: the budget
+divided by $P$, rounded down to whole records and capped so displacements
+fit in an \texttt{int}. All ranks run the same number of rounds, and each
+received chunk is copied to its final offset, so the output is identical to
+one exchange and staging stays below twice the budget. Seed redistribution
+supplies data through a callback that reads the per-destination seed
+buffers (Section~\ref{sec:impl:o4}) directly. The planning arithmetic has
+no MPI calls, so unit tests exercise sizes far above $2^{31}$ without
+allocating them.
+
+Unit and MPI tests on 1--8 ranks with budgets down to 256 bytes pass, and
+with an 8\,MiB budget, which forces rounds in both exchanges, per-rank PAF
+files on yeast7 and scerevisiae8 are byte-identical to the single-exchange
+version.

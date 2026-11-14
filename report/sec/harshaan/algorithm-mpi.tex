@@ -32,12 +32,10 @@ destination rank.
 
 \paragraph{Bounded exchanges.} Both exchanges are personalized all-to-all
 transfers of fixed-size records whose volume per rank can exceed the 32-bit
-counts and displacements of \texttt{MPI\_Alltoallv} ($2^{31}-1$ bytes). Sizes
-are therefore exchanged as 64-bit integers, and a transfer that exceeds a
-per-round budget is split into rounds of \texttt{MPI\_Alltoallv}. Each round
-moves at most a fixed number of whole records per peer, and every received
-slice is written at its final offset, so the result is byte-identical to a
-single unbounded exchange for any number of rounds. The budget bounds only
+counts of \texttt{MPI\_Alltoallv}. Large transfers are split into rounds
+of whole records, and the result is byte-identical to a single unbounded
+exchange for any number of rounds (Section~\ref{sec:impl:o2}). The per-round
+budget bounds only
 staging memory: the complete send and receive data stay resident (during
 the sort, a rank holds its extracted records, their packed send copy and
 its received slice), so peak memory per rank is set by its volume of

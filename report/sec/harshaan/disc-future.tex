@@ -10,17 +10,6 @@
 
 \subsection{Limitations and future work}\label{sec:disc:future}
 
-Alignment is now the dominant stage, and its cost is unevenly distributed
-across ranks. Contig pairs are assigned statically by length product,
-whereas a task's time depends on how much sequence it aligns; in primates4
-the costliest tasks paired short, repeat-rich contigs with few seeds but
-very long alignments. Task granularity is a harder limit: each pair is
-aligned by one rank, so the largest task bounds alignment time from below.
-In primates14 (earlier revision), that task was the self-alignment of the
-longest contig, and total alignment work was only about 14 times its cost,
-capping alignment speedup near $14\times$ at any rank count.
-% Numbers belong in Results; re-measure on the current binary.
-
 \paragraph{Workload-aware load balancing.}
 Contig pairs could be weighted by estimated work rather than length, as
 in the multiway number partitioning of ELBA~\cite{elba}, provided every
@@ -29,25 +18,12 @@ pre-alignment features such as seed counts only partly predict alignment
 time in our measurements. Replaying measured task times under a dynamic
 schedule (self-alignments first, by contig length) shortens the slowest
 rank in simulation only; it is not implemented, and it conflicts with
-sending seeds to their owner before alignment. No schedule beats the
-largest-task bound; that requires splitting self-alignments across ranks
-while reproducing FastGA's alignments exactly, an open problem.
+sending seeds to their owner before alignment. No schedule can finish
+before the largest single task (Section~\ref{sec:disc:small}); that
+requires splitting self-alignments across ranks while reproducing FastGA's alignments exactly, an open problem.
 
 \paragraph{GPU acceleration.}
 Syncmer selection and radix sorting are regular, data-parallel passes over
 packed 2-bit sequence and candidates for GPU offload, but they now take
 a small share of run time; alignment, which dominates, is irregular and
 harder to offload.
-
-\paragraph{Other limits.}
-Ranks are single-threaded, so cores are used only as additional ranks.
-The contig-pair map stores one byte per ordered pair on every rank, which
-caps the rank count at 127 and grows quadratically with the number of
-contigs, a constraint for fragmented assemblies. Work is partitioned at
-whole contigs for extraction and at 1{,}024 buckets for the sort, limiting
-balance at high rank counts, and all seeds are held in memory with no
-out-of-core fallback. Exact validation at human scale needs an independent
-single-node FastGA reference, whose cost grows rapidly with the number of
-haplotypes. Agreement between runs at
-different rank counts is weaker evidence than agreement with FastGA,
-because it shares any error of our own pipeline.
