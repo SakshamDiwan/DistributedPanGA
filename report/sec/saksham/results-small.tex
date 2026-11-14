@@ -1,14 +1,17 @@
 \subsection{Yeast and primate datasets}\label{sec:results:small}
 
-All 30 DistributedPanGA runs produced output byte-identical to FastGA's.
+All 30 DistributedPanGA runs on the yeast and primate datasets produced
+output byte-identical to FastGA's.
 Table~\ref{tab:pipeline} gives the time of each stage and the total for
-every configuration.
+every configuration; the tables and figures of this section also carry the
+hsapiens90.chr6 runs, which Section~\ref{sec:results:human} describes.
 
 \begin{table}[htbp]
 \caption{DistributedPanGA time per stage, in seconds. ``Seeds'' is seed
 generation and redistribution; ``Alignment'' includes PAF output.
-``Total'' is the sum of the four stages. Each row is the run with the
-median total time of three.}\label{tab:pipeline}
+``Total'' is the sum of the four stages. Each yeast and primate row is the
+run with the median total time of three; each hsapiens90.chr6 row is the
+first of two runs.}\label{tab:pipeline}
 \begin{tabular}{@{}lrrrrrrr@{}}
 \toprule
 Dataset & Nodes & Ranks & Extraction & Sort & Seeds & Alignment & Total \\
@@ -21,10 +24,13 @@ Dataset & Nodes & Ranks & Extraction & Sort & Seeds & Alignment & Total \\
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{fig/strong_scaling.pdf}
-\caption{All panels use log--log axes. (a) Total time against ranks. yeast7 and primates4.chr6 run on one
-node. primates14.chr6 uses 16 ranks per node (1, 2 and 4 nodes). Dotted lines
-show ideal scaling from the smallest run. (b)--(d) Time per stage for each
-dataset; the legend at the top applies to these panels.}\label{fig:strong}
+\caption{Panels (a)--(e) use log--log axes. (a) Total time against ranks.
+yeast7 and primates4.chr6 run on one node, primates14.chr6 uses 16 ranks
+per node (1, 2 and 4 nodes) and hsapiens90.chr6 runs on four nodes. Dotted
+lines show ideal scaling from the smallest run. (b)--(e) Time per stage for
+each dataset; the legend at the top applies to these panels. (f) Slowest
+rank's alignment time divided by the average rank's
+(Table~\ref{tab:perrank}); the dotted line marks an even split.}\label{fig:strong}
 \end{figure}
 
 \paragraph{Strong scaling on one node.} From 1 to 8 ranks, yeast7 drops
@@ -65,14 +71,18 @@ Dataset & Nodes & Ranks & Slowest & Average & Fastest & Slowest/avg. \\
 \centering
 \includegraphics[width=\textwidth]{fig/vs_fastga.pdf}
 \caption{DistributedPanGA ($P$ ranks) against FastGA ($t$ threads on one
-node) at equal core counts, on log--log axes. For primates14.chr6,
-DistributedPanGA uses 16 ranks per node.}\label{fig:fastga}
+node), on log--log axes. On the yeast and primate datasets the two tools
+are measured at the same core counts; for primates14.chr6, DistributedPanGA
+uses 16 ranks per node. On hsapiens90.chr6, DistributedPanGA ran on four
+nodes and only the 32-rank and 32-thread runs use the same number of cores.}\label{fig:fastga}
 \end{figure}
 
 \begin{table}[htbp]
-\caption{FastGA time per step on one node, in seconds. Each row is the run
-with the median total time of three. \texttt{GIXmake} builds the index,
-\texttt{FastGA} aligns and \texttt{ALNtoPAF} writes PAF.}\label{tab:fastga}
+\caption{FastGA time per step on one node, in seconds. Each yeast and
+primate row is the run with the median total time of three. \texttt{GIXmake}
+builds the index, \texttt{FastGA} aligns and \texttt{ALNtoPAF} writes PAF.
+Each hsapiens90.chr6 row is one run, and both use the same 16-thread
+\texttt{GIXmake} build.}\label{tab:fastga}
 \begin{tabular}{@{}lrrrrr@{}}
 \toprule
 Dataset & Threads & \texttt{GIXmake} & \texttt{FastGA} & \texttt{ALNtoPAF} & Total \\
@@ -83,7 +93,7 @@ Dataset & Threads & \texttt{GIXmake} & \texttt{FastGA} & \texttt{ALNtoPAF} & Tot
 \end{table}
 
 \paragraph{Comparison with FastGA.} Table~\ref{tab:fastga} gives FastGA's time per step. All FastGA runs produced the same
-alignments as the reference. At equal core counts, DistributedPanGA is
+alignments as the reference. On the yeast and primate datasets, at equal core counts, DistributedPanGA is
 1.0--1.4$\times$ faster than FastGA on yeast7 (1 to 8 cores),
 1.4--1.9$\times$ on primates4.chr6 (4 to 16 cores) and 1.2--1.8$\times$ on
 primates14.chr6 (16 to 64 cores) (Fig.~\ref{fig:fastga}). From 4 to 16 cores

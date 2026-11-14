@@ -4,17 +4,18 @@ Aligning all haplotypes of a pangenome against each other can be done in
 one pass: FastGA~\cite{fastga} puts every haplotype's sampled $k$-mers into
 one sorted table, where matching $k$-mers sit next to each other, so a
 single scan finds matches between every pair of
-haplotypes~\cite{garrison}. The table grows with the total sequence length
-and soon outgrows the memory of one machine.
+haplotypes~\cite{garrison}. FastGA runs on one machine, so its running time
+is bounded by that machine's cores, and alignment, which dominates the run,
+grows faster than the input as haplotypes are added.
 
-We distribute this table, and the steps that use it, across nodes so it can
-grow past one machine. The result is only useful if it is exactly FastGA's,
+We distribute this table, and the steps that use it, across nodes so the
+work can use more than one machine. The result is only useful if it is exactly FastGA's,
 so we require byte-identical output.
 
 This paper presents DistributedPanGA, an MPI version of FastGA's
 self-alignment, and evaluates it on four pangenomes. Its output matches
 FastGA's on every yeast and primate run, and with the same number of cores
 it runs up to 1.9$\times$ faster. On 90 human chromosome-6 haplotypes
-(15.5\,Gbp), the output matches FastGA's at 32 ranks; at 64 ranks on four
-nodes, one of 1,375,248 alignments is missing, and the run is 8.2$\times$
-faster than FastGA's fastest measured one-node run.
+(15.5\,Gbp), 32 ranks on four nodes reproduce FastGA's output exactly and
+are 5.1$\times$ faster than FastGA's fastest measured one-node run; 64 ranks
+are 8.2$\times$ faster but miss one of 1,375,248 alignments.

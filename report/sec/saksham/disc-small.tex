@@ -1,4 +1,4 @@
-\subsection{Small-dataset results}\label{sec:disc:small}
+\subsection{Alignment limits scaling}\label{sec:disc:small}
 
 \paragraph{Alignment limits scaling.} On primates14.chr6 every stage except
 alignment keeps getting faster up to 64 ranks, while alignment stops
@@ -30,18 +30,3 @@ Second, the stage lasts as long as its slowest rank, and the work is
 unevenly assigned (see above). On
 primates14.chr6 the slowest rank takes 3.2$\times$ the average, which
 together with the first factor accounts for its 28$\times$ growth.
-
-\paragraph{Against FastGA.} DistributedPanGA is faster than FastGA at every
-equal core count tested. Both tools run FastGA's alignment code, so the
-difference comes from how the work is split. On yeast7 and primates4.chr6
-the gap widens with cores. On primates14.chr6 it narrows, from 1.8$\times$
-at 16 cores to 1.2$\times$ at 64, because both tools stop improving after 32
-cores: from 32 to 64, FastGA speeds up by 1.04$\times$ and DistributedPanGA
-not at all. This fits a limit both share: FastGA, like DistributedPanGA,
-aligns each contig pair on a single thread, so the most expensive pair
-bounds both.
-
-On one node, DistributedPanGA with 16 ranks matches FastGA's fastest time
-(64 threads); on two nodes it is 1.2$\times$ faster. Four nodes add nothing,
-for the reason above: until the work is assigned more evenly, more nodes do
-not shorten the slowest rank.

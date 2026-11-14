@@ -19,7 +19,8 @@ early wait at the start of the sort for the slowest one; we count that wait
 as extraction, not as sort. Each yeast and primate configuration ran three times. We report the run
 with the median total time, so its stage times add up to its total. Times
 are given to two decimals; speedups, ratios and percentages are rounded.
-Section~\ref{sec:results:human} describes the human runs.
+The hsapiens90.chr6 rows are single runs, not medians: DistributedPanGA ran
+twice and FastGA once per configuration (Section~\ref{sec:results:human}).
 
 FastGA ran on one node with $t$ threads. Its time is the sum of
 \texttt{GIXmake}, \texttt{FastGA} and \texttt{ALNtoPAF}. On the yeast and
@@ -31,15 +32,17 @@ start from the same GDB.
 \begin{table}[htbp]
 \caption{Datasets. yeast7 is seven \textit{S.~cerevisiae} strains; the
 primate and human sets are chromosome~6 assemblies from the PGGB benchmark
-collection~\cite{pggbdata}. Contigs are the GDB's gap-free sequences.}\label{tab:datasets}
-\begin{tabular}{@{}lrrrr@{}}
+collection~\cite{pggbdata}. Contigs are the GDB's gap-free sequences.
+Aligned bases are the summed lengths of FastGA's alignments; one input base
+is counted once for every alignment it is part of.}\label{tab:datasets}
+\begin{tabular}{@{}lrrrrr@{}}
 \toprule
-Dataset & Bases & Sequences & Contigs & FastGA alignments \\
+Dataset & Bases & Sequences & Contigs & FastGA alignments & Aligned bases \\
 \midrule
-yeast7 & 83.4\,Mbp & 112 & 119 & 43,126 \\
-primates4.chr6 & 672.5\,Mbp & 4 & 100 & 1,547,485 \\
-primates14.chr6 & 2.63\,Gbp & 52 & 82 & 4,577,556 \\
-hsapiens90.chr6 & 15.51\,Gbp & 1,410 & 1,422 & 1,375,248 \\
+yeast7 & 83.4\,Mbp & 112 & 119 & 43,126 & 0.55\,Gbp \\
+primates4.chr6 & 672.5\,Mbp & 4 & 100 & 1,547,485 & 4.67\,Gbp \\
+primates14.chr6 & 2.63\,Gbp & 52 & 82 & 4,577,556 & 137.9\,Gbp \\
+hsapiens90.chr6 & 15.51\,Gbp & 1,410 & 1,422 & 1,375,248 & 642.7\,Gbp \\
 \botrule
 \end{tabular}
 \end{table}

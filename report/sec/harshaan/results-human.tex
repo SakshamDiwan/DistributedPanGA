@@ -3,12 +3,14 @@
 hsapiens90.chr6 holds 90 human haplotypes of chromosome~6 from the same
 collection~\cite{pggbdata}: 15.51\,Gbp in 1,410 sequences and 1,422 contigs,
 six times the size of primates14.chr6. FastGA's reference has 1,375,248
-alignments and links every one of the 4,005 pairs of haplotypes. We ran
-DistributedPanGA with 32 and 64 ranks on four nodes and FastGA on one node
-with 16 and 32 threads; each configuration ran twice for DistributedPanGA
-(totals within 1\%) and once for FastGA. \texttt{GIXmake} crashes with 32
-threads on this input, so FastGA's index was built with 16 threads in both
-FastGA rows.
+alignments and links every one of the 4,005 pairs of haplotypes. Its rows in
+Tables~\ref{tab:pipeline}, \ref{tab:perrank} and~\ref{tab:fastga} and its panels in
+Figs.~\ref{fig:strong} and~\ref{fig:fastga} differ from the other datasets
+in three ways. DistributedPanGA ran with 32 and 64 ranks, both on four
+nodes, so the rank count changes but the node count does not. Each of these
+ran twice, with totals within 1\%, and we report the first run. FastGA ran
+once with 16 threads and once with 32, both on one index built with 16
+threads, because \texttt{GIXmake} crashes with 32 threads on this input.
 
 \paragraph{Correctness.} With 32 ranks, both runs are byte-identical to
 FastGA's sorted output. FastGA's output is the same at 16 and 32 threads.
@@ -16,41 +18,15 @@ With 64 ranks, both runs miss the same single alignment, a same-strand
 self-alignment of one contig over about 3.9\,kbp; every other line matches.
 We hypothesize an edge case in our pipeline or in FastGA and will investigate it.
 
-\paragraph{Time.} Table~\ref{tab:human} and
-Fig.~\ref{fig:human} give the times. DistributedPanGA takes 291.17\,s with
-32 ranks and 180.07\,s with 64, a speedup of 1.62. FastGA takes 1,480.42\,s
-with 16 threads and 1,736.93\,s with 32, so DistributedPanGA with 64 ranks
-is 8.2$\times$ faster than FastGA's fastest measured run (16 threads), and
-6.0$\times$ faster at 32 ranks against 32 threads. Both tools used FastGA's
-default cutoff, $f=10$, so $k$-mers shared by ten or more haplotypes are not
-used as seeds. Alignment is 84--87\% of DistributedPanGA's
-total. The slowest rank's alignment time is 1.32 times the average at 32
-ranks and 1.49 at 64.
-
-\begin{table}[htbp]
-\caption{hsapiens90.chr6, time per stage in seconds. DistributedPanGA ran on
-four nodes; stages as in Table~\ref{tab:pipeline}. For FastGA (one node),
-``Index'' is \texttt{GIXmake} (one 16-thread build, used in both rows),
-``Align'' is \texttt{FastGA} and ``PAF'' is \texttt{ALNtoPAF}. FastGA ran once
-per row.}\label{tab:human}
-\begin{tabular}{@{}lrrrrrr@{}}
-\toprule
-DistributedPanGA & Ranks & Extraction & Sort & Seeds & Alignment & Total \\
-\midrule
- & 32 & 9.86 & 22.65 & 6.46 & 252.20 & 291.17 \\
- & 64 & 6.13 & 18.16 & 3.85 & 151.92 & 180.07 \\
-\midrule
-FastGA & Threads & Index & Align & PAF & & Total \\
-\midrule
- & 16 & 400.39 & 1,069.81 & 10.22 & & 1,480.42 \\
- & 32 & 400.39 & 1,330.71 & 5.83 & & 1,736.93 \\
-\botrule
-\end{tabular}
-\end{table}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.85\textwidth]{fig/human_chr6.pdf}
-\caption{hsapiens90.chr6: time per stage for FastGA on one node and
-DistributedPanGA on four nodes (Table~\ref{tab:human}).}\label{fig:human}
-\end{figure}
+\paragraph{Time.} DistributedPanGA takes 291.17\,s with 32 ranks and
+180.07\,s with 64, a speedup of 1.62 (Table~\ref{tab:pipeline},
+Fig.~\ref{fig:strong}e). FastGA takes 1,480.42\,s with 16 threads and
+1,736.93\,s with 32 (Table~\ref{tab:fastga}). Against FastGA's fastest
+measured run, DistributedPanGA is 5.1$\times$ faster with 32 ranks and
+8.2$\times$ faster with 64; at 32 ranks against 32 threads it is
+6.0$\times$ faster (Fig.~\ref{fig:fastga}). These ratios compare four nodes
+with one, and only the 32-rank and 32-thread runs use the same number of
+cores. Alignment is 84--87\% of DistributedPanGA's total and the sort
+8--10\%, its largest share on any dataset. The slowest rank's alignment
+time is 1.32 times the average at 32 ranks and 1.49 at 64
+(Table~\ref{tab:perrank}).

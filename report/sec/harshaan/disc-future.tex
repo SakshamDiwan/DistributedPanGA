@@ -18,3 +18,11 @@ packed 2-bit sequence and candidates for GPU offload. They now take a small
 share of the total time, though, so it is an open question whether
 offloading them is worth the minute performance gain, if any. Alignment, which dominates, is
 irregular and harder to offload.
+
+\paragraph{Limits.}
+A run can use at most 127 ranks, because the pair-to-rank map stores a rank
+in one signed byte. The map has one entry per ordered pair of contigs, so it
+grows with the square of the contig count: 2\,MB for the 1,422 contigs of
+hsapiens90.chr6, but 1\,GB per rank for 32,000 contigs. Every rank also
+holds its records and seeds in memory, so the memory summed over ranks is
+far above FastGA's (Section~\ref{sec:disc:human}).

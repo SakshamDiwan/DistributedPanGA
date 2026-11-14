@@ -3,7 +3,9 @@
 \item \textbf{Frequency cutoff.} Both tools used FastGA's default cutoff,
   $f=10$, which drops $k$-mers that occur ten or more times, such as those
   shared by ten or more haplotypes. This affects primates14.chr6 (14
-  haplotypes) and hsapiens90.chr6 (90). How do running time, scaling and
+  haplotypes) and hsapiens90.chr6 (90). FastGA still aligns 642.7\,Gbp on
+  hsapiens90.chr6, 41 times its input (Table~\ref{tab:datasets}), so the
+  cutoff does not leave the output sparse. How do running time, scaling and
   the comparison with FastGA change with a cutoff that grows with the number
   of haplotypes?
 \item \textbf{Weak scaling.} Equal input per rank does not mean equal

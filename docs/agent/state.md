@@ -101,9 +101,21 @@ Merge in order: #9 → #10 → #11 → this.
   `path->abpos = path->aepos = 0`; `bbpos/bepos` keep the previous pair's
   values and feed `eant = aepos + bepos`, so later chains can be skipped.
   Trace build on branch `trace-align` (`PGA_TRACE_ANCHOR=1072`, job 61278174)
-  shows the stale `b=87063320-87150831` from pair (1072,367). To prove: rerun
-  the 32-rank trace (61278175 was cancelled), then test the one-line fix
-  (also zero `bbpos/bepos`) at 32 and 64 ranks.
+  shows the stale `b=87063320-87150831` from pair (1072,367). To prove: compare
+  with the 32-rank trace (61278175 was cancelled by the system; resubmitted as
+  61295918 on 2026-11-14, pending when this was written), then test the
+  one-line fix (also zero `bbpos/bepos`) at 32 and 64 ranks.
+- **Report (2026-11-14, branch `report-human-merge`, not pushed):** human rows
+  are now in the shared tables (`report/fig/table_{pipeline,fastga,perrank}.tex`,
+  added by hand; Saksham's generator is not in the repo and would overwrite
+  them) and both figures are redrawn by `report/fig/make_report_figs.py` from
+  those table files. The report leads with the 32-rank human result (matches
+  FastGA). Still to do: pipeline figure, extraction speedup numbers, 3 repeats
+  and 16-ranks-per-node placement for human, FastGA at 64 threads on human.
+- **Aligned bases (gold PAFs, PAF column 11 summed):** yeast7 0.55 Gbp,
+  primates4 4.67, primates14 137.9, hsapiens90 642.7. Human has 4.7x the
+  aligned bases of primates14 in 0.30x the alignments, at about half the
+  summed alignment time; why is untested.
 - **127-rank limit:** the contig-pair map is `int8_t`, and two `ncontig²`
   maps are live at once.
 - **Large self-alignment tasks floor scaling:** primates14's largest is

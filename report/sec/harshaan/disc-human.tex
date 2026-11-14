@@ -1,15 +1,24 @@
 \subsection{Human scale}\label{sec:disc:human}
 
-FastGA handled hsapiens90.chr6 on a single node in under half an hour, so at the scale of one chromosome, distribution shortens
-the run rather than making it possible. The input is six times larger than
-primates14.chr6, yet FastGA's best time is about the same on both, and
-DistributedPanGA is several times faster on it. A likely reason is that the
-90 haplotypes are nearly identical: most $k$-mers should then occur at
-least $f=10$ times and yield no seeds, leaving less alignment work. We did
-not measure this directly. Where single-node FastGA reaches its
+FastGA handled hsapiens90.chr6 on a single node in under half an hour, so at
+the scale of one chromosome, distribution shortens the run rather than
+making it possible. The input is six times larger than primates14.chr6, yet
+FastGA's best time is about the same on both, and DistributedPanGA is
+several times faster on it. The output does not explain this by being
+smaller: FastGA aligns 4.7$\times$ as many bases on the human data. It does
+so in far fewer and longer alignments, and DistributedPanGA spends about
+half the alignment time on them (Section~\ref{sec:results:scaling}). One
+explanation that fits is that the 90 haplotypes are nearly identical, so
+their alignments are long and cheap per base; the default cutoff $f=10$,
+which drops $k$-mers shared by ten or more haplotypes, may also leave fewer
+seeds to chain. We tested neither. Where single-node FastGA reaches its
 limits, in more haplotypes or whole genomes, remains to be measured.
 
+The speed costs memory. On hsapiens90.chr6, the \texttt{FastGA} step peaked
+at 15.1\,GB or less. DistributedPanGA peaked at 22.9\,GB per rank with 32 ranks and
+14.1\,GB with 64, which is 675\,GB and 747\,GB summed over ranks.
+
 The single alignment missing at 64 ranks is the only disagreement with
-FastGA across all datasets and rank counts. We assume an edge case in our pipeline or in FastGA and will investigate it.
-Until it is explained, exact agreement is
-established for human chromosome~6 at 32 ranks only.
+FastGA across all datasets and rank counts. We assume an edge case in our
+pipeline or in FastGA and will investigate it. Until it is explained, exact
+agreement is established for human chromosome~6 at 32 ranks only.
