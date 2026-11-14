@@ -321,6 +321,13 @@ int main(int argc, char *argv[])
     record_buffer_init(&local, sizing);
     extract_stats_reset();
     extract_to_records(gdb, world_size, my_rank, &local);
+    // This rank's own extraction time (reported per rank in [o1-0]).
+    double t_extract_own = MPI_Wtime() - t_stage_start;
+    // Wait for every rank before the sort starts. Without this, early ranks
+    // wait inside the sort's first Allreduce, so the stage table counts that
+    // wait in both extract (slowest rank) and sort (early ranks) and the
+    // summed TOTAL exceeds the wall time.
+    MPI_Barrier(MPI_COMM_WORLD);
     t_extract = MPI_Wtime() - t_stage_start;
     int64_t extracted_records = local.count;
 
@@ -343,13 +350,14 @@ int main(int argc, char *argv[])
         const ExtractStats *es = &g_extract_stats;
         const Stage2Timing *st = &g_stage2_timing;
         fprintf(stderr,
-                "[o1-0] rank %d: extract_s=%.6f contigs=%lld bases=%lld "
+                "[o1-0] rank %d: extract_s=%.6f extract_wait_s=%.6f contigs=%lld bases=%lld "
                 "records=%lld window_reads=%lld window_bases=%lld "
                 "pack_reads=%lld pack_bases=%lld window_packs=%lld "
                 "hist_s=%.6f pack_s=%.6f exchange_s=%.6f shuffle_s=%.6f "
                 "local_sort_s=%.6f verify_s=%.6f sort_stage_s=%.6f "
                 "slice_records=%lld\n",
-                my_rank, t_extract, (long long) es->contigs,
+                my_rank, t_extract_own, t_extract - t_extract_own,
+                (long long) es->contigs,
                 (long long) es->bases, (long long) extracted_records,
                 (long long) es->window_reads, (long long) es->window_bases,
                 (long long) es->pack_reads, (long long) es->pack_bases,
