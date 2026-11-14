@@ -1,0 +1,18 @@
+# Dataset provenance: primates14.chr6.fa.gz
+source_record: Zenodo 10.5281/zenodo.7937947 (pangenomes from the PGGB paper, "Building pangenome graphs")
+source_url:    https://zenodo.org/api/records/7937947/files/primates14.chr6.fa.gz/content
+downloaded:    2026-10-12 by the author (curl, login node)
+md5 (Zenodo):  5872fe857811f3c1249bccfd2b21165c -> verified OK
+contents:      52 sequences, 2635.6 Mbp (PanSN names); counted with zcat|awk on 2026-10-12
+gold:          FastGA self-alignment PAF only (entries below); no phase-level gold
+
+# gold  (2026-10-12T17:39:42Z, slurm job 59709627, host nid006349)
+source:      $SCRATCH/pga-fixtures/primates14-chr6/primates14.chr6.fa.gz
+fastga_bin:  $HOME/FASTGA (sha256 FastGA 2110e2fb402fd012…)
+command:     FAtoGDB primates14_chr6.fa.gz; GIXmake -T32 primates14_chr6; FastGA -1:gold -T32 primates14_chr6; ALNtoPAF gold.1aln > gold.paf
+defaults:    -f10 (FREQ), -k40, -c85 -s1000 -l100 -i.7
+alignments:  4577556
+f561867931a1d01e4e4113b844a841aa6e11cf0522b214ecdbd6b252fa467373  $SCRATCH/pga-fixtures/primates14-chr6/primates14.chr6.fa.gz
+d5afe0284d850215ac057e583c51d4465fc168565fce873ed321612435bc5cde  primates14_chr6.1gdb
+0279690120d7da8b117ab7144ad28ddc28fae6bdf391ab682d1a65865bd859f5  gold.paf
+

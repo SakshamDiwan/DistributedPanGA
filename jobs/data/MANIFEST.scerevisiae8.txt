@@ -1,0 +1,28 @@
+# Dataset provenance: scerevisiae8.fa.gz
+source_record: Zenodo 10.5281/zenodo.7937947 (pangenomes from the PGGB paper, "Building pangenome graphs")
+source_url:    https://zenodo.org/api/records/7937947/files/scerevisiae8.fa.gz/content
+downloaded:    2026-10-12 by the author (curl, login node)
+md5 (Zenodo):  48e911dab1064fd8ca22d4e2da3d4135 -> verified OK
+contents:      136 sequences, 96.3 Mbp (PanSN names); counted with zcat|awk on 2026-10-12
+gold:          FastGA self-alignment PAF only (entries below); no phase-level gold
+
+# gold  (2026-10-12T17:12:05Z, slurm job 59709627, host nid006349)
+source:      $SCRATCH/pga-fixtures/scerevisiae8/scerevisiae8.fa.gz
+fastga_bin:  $HOME/FASTGA (sha256 FastGA 2110e2fb402fd012…)
+command:     FAtoGDB scerevisiae8.fa.gz; GIXmake -T8 scerevisiae8; FastGA -1:gold -T8 scerevisiae8; ALNtoPAF gold.1aln > gold.paf
+defaults:    -f10 (FREQ), -k40, -c85 -s1000 -l100 -i.7
+alignments:  50046
+a201cf14bbf1b41d36bc1b2ee69efe109ebd924651c5d4195457be3c53ed412f  $SCRATCH/pga-fixtures/scerevisiae8/scerevisiae8.fa.gz
+5036ac7a6e5b16fe51209e64b4a30605d6664f180b910ca0e19b1ac2fe501cea  scerevisiae8.1gdb
+6ba0c43c9ece637e29920d9586435e3b62b607a501b2331ba0eda49fb71c078b  gold.paf
+
+# gold.T32  (2026-10-12T17:12:10Z, slurm job 59709627, host nid006349)
+source:      $SCRATCH/pga-fixtures/scerevisiae8/scerevisiae8.fa.gz
+fastga_bin:  $HOME/FASTGA (sha256 FastGA 2110e2fb402fd012…)
+command:     FAtoGDB scerevisiae8.fa.gz; GIXmake -T32 scerevisiae8; FastGA -1:gold.T32 -T32 scerevisiae8; ALNtoPAF gold.T32.1aln > gold.T32.paf
+defaults:    -f10 (FREQ), -k40, -c85 -s1000 -l100 -i.7
+alignments:  50046
+a201cf14bbf1b41d36bc1b2ee69efe109ebd924651c5d4195457be3c53ed412f  $SCRATCH/pga-fixtures/scerevisiae8/scerevisiae8.fa.gz
+5036ac7a6e5b16fe51209e64b4a30605d6664f180b910ca0e19b1ac2fe501cea  scerevisiae8.1gdb
+72356d5b5951774160d720c461bd45690634ea0e764f2a40f8c6d3f36a0a28aa  gold.T32.paf
+

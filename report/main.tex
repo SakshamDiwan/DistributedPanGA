@@ -46,7 +46,7 @@
 
 \begin{document}
 
-\title[Short Title]{Article Title}
+\title[DistributedPanGA]{DistributedPanGA: distributed pangenome self-alignment that reproduces FastGA}
 
 %% \author* and \affil* mark the corresponding author and affiliation.
 \author[1]{\fnm{Saksham} \sur{Diwan}}\email{sd966@cornell.edu}
@@ -68,7 +68,7 @@
 %% Bioinformatics structured abstract (150 words recommended in total)
 \abstract{\textbf{Motivation:} Self-aligning a pangenome of $H$ haplotypes with FastGA finds matches across all haplotype pairs in a single scan of one sorted $k$-mer table, so the scan grows as $O(H \cdot L)$ rather than the $O(H^2 \cdot L)$ of explicit all-pairs alignment~\cite{fastga,garrison}. The table itself, however, grows with $H \cdot L$ and soon exceeds the memory of a single node. Distributing it across nodes removes that limit, but the result is only useful if it reproduces FastGA's alignments exactly.
 
-\textbf{Results:} \TODO{results summary, after the primate and human experiments (shared)}
+\textbf{Results:} DistributedPanGA partitions FastGA's index, seed generation and alignment across MPI ranks while keeping FastGA's alignment code. On yeast and primate pangenomes of 83\,Mbp to 2.63\,Gbp, every run is byte-identical to FastGA and, at equal core counts, 1.0--1.9$\times$ faster. On 90 human haplotypes of chromosome~6 (15.5\,Gbp), four nodes finish in 180\,s against FastGA's best one-node time of 1,480\,s; output is identical at 32 ranks, while at 64 ranks one of 1.38 million alignments differs and is under investigation. Alignment dominates the run time, and its uneven cost across ranks limits further scaling.
 
 \textbf{Availability and Implementation:} DistributedPanGA is implemented in C with MPI and is available at \url{https://github.com/SakshamDiwan/DistributedPanGA}. Benchmark pangenomes are from Zenodo~\cite{pggbdata}. \TODO{license and archived release}
 
@@ -93,9 +93,18 @@
 
 \bmhead{Acknowledgements}
 
+This research used resources of the National Energy Research Scientific
+Computing Center (NERSC), a Department of Energy User Facility, under
+project m4341. \TODO{NERSC award number}
+
 \bmhead{Author contributions}
 
 %% CRediT roles, e.g. First Author (Conceptualization, Software, Writing---original draft)
+S.D.\ and H.C.\ developed the software, ran the experiments and wrote the
+manuscript; S.D.\ led the in-memory seed exchange, the distributed alignment
+and the yeast and primate evaluation, and H.C.\ the extraction I/O, the
+large-count exchanges and the human evaluation. E.G.\ and G.G.\ conceived
+and supervised the project. \TODO{confirm roles; add S.C.}
 
 \bmhead{Supplementary data}
 
@@ -107,9 +116,13 @@ None declared.
 
 \bmhead{Funding}
 
-This work was supported by the Full Agency Name [grant number xxxx].
+\TODO{funding sources and grant numbers}
 
 \bmhead{Data availability}
+
+All pangenomes are public on Zenodo~\cite{pggbdata}. The job scripts behind
+every result and the checksums of the inputs and FastGA reference outputs
+are in the repository's \texttt{jobs/} directory.
 
 \bibliography{ref}
 

@@ -25,12 +25,14 @@ memory.
 \subsection{Contributions}\label{sec:intro:contributions}
 \begin{itemize}
 \item DistributedPanGA, an MPI implementation of FastGA's self-alignment,
-  byte-identical to FastGA at every rank and node count tested.
+  byte-identical to FastGA on every yeast and primate run and on human
+  chromosome~6 at 32 ranks.
 \item All-to-all exchanges of more than $2^{31}$ bytes per rank, and seeds
   kept in memory from generation to alignment.
 \item An evaluation on three pangenomes of 83\,Mbp to 2.63\,Gbp: at equal
   core counts DistributedPanGA is 1.0--1.9$\times$ faster than FastGA, and
   on primates14.chr6 two nodes are 1.2$\times$ faster than FastGA's fastest
   one-node run.
+\item On 90 human haplotypes of chromosome~6 (15.5\,Gbp), four nodes are
+  8.2$\times$ faster than FastGA's fastest one-node run.
 \end{itemize}
-\TODO{human-scale result (Harshaan), once the runs finish}
