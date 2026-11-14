@@ -1,26 +1,30 @@
 %% =====================================================================
-%% Discussion / Scaling bottlenecks -- JOINT (Harshaan + Saksham).
-%% Outline + evidence checklist only. No interpretation until we both
-%% look at the data (incl. human). AUTHOR NOTES ONLY.
+%% Discussion / Scaling across datasets -- owner: Harshaan (joint topic).
+%% Builds on Saksham's 6.1 (unit of assignment); numbers in
+%% sec/harshaan/results-scaling.tex.
 %% =====================================================================
 
+\subsection{Scaling across datasets}\label{sec:disc:scaling}
 
-\subsection{Scaling bottlenecks}\label{sec:disc:scaling}
+The human dataset, six times larger than primates14.chr6, scales much
+better, which fits the explanation in Section~\ref{sec:disc:small}: a
+contig pair is never split, so the most expensive pair bounds the
+alignment stage. hsapiens90.chr6 has 1,422 contigs against 82, and its most
+expensive pair is about 0.5\% of the alignment work rather than 7\%. Its
+work could in principle be spread over roughly 180 ranks before that pair
+sets the stage time, against about 14 for primates14.chr6. How many contigs
+an input has, and how evenly its work falls on them, may therefore matter
+more for scaling than its size.
 
-\TODO{Harshaan, after the human runs}
-%% OUTLINE
-%%  1 Which stages were bottlenecks and are no longer (extraction I/O,
-%%    >2 GiB exchanges) -- one sentence each, refer to Methods/Impl.
-%%  2 What dominates now (alignment) and why: imbalance + largest task.
-%%  3 Memory as the other scaling limit (stage 2 arrays; O4 seed residency).
-%%  4 What this means for human scale (after data).
-%% EVIDENCE CHECKLIST (have / need)
-%%  [have] primates14 N=16 vs N=32 wall, stage CSV, imbalance (gate 2)
-%%  [have] per-task alignment times + feature fits (gate 2)
-%%  [have] per-stage memory peaks pre-O4 ([pr1-mem], job 59717508)
-%%  [need] same metrics on the current (O4) binary for primates14
-%%  [need] human pilot stage times + per-rank memory + imbalance
-%%  [need] Saksham's small-dataset results (his section) to avoid
-%%         contradicting numbers
-%%  [need] agreed metric definitions: wall vs CSV total_s (sum of per-stage
-%%         maxima), MB vs MiB
+The task bound does not explain the remaining imbalance on the human data.
+At 64 ranks its slowest rank aligns for 149\,s, more than four times its
+most expensive pair (34\,s) and 1.49 times the average (100\,s). Since no
+single task is that large, the gap most likely comes from the static
+assignment by length product, which does not track alignment cost (Section~\ref{sec:disc:future}). A perfectly balanced
+assignment would shorten the alignment stage by at most this factor of
+about 1.5 at 64 ranks.
+
+Memory per rank falls as ranks are added, but less than in proportion, so
+the total grows. Per-rank memory therefore decides how few nodes a run can
+use: 32 ranks at 22.9\,GB each should fit on two of Perlmutter's 512\,GB
+nodes, where we used four; we have not tested this.
