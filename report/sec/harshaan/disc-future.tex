@@ -1,13 +1,3 @@
-%% =====================================================================
-%% Discussion / Limitations and future work -- owner: Harshaan.
-%% Two directions from the project proposal: O3 (workload-aware load
-%% balancing) and O5 (GPU offload); kept open-ended. Internal O-labels are
-%% not used in the text. No HySortK here (Nov 13 decision).
-%% Nothing below is implemented. Measured vs. modeled is marked inline.
-%% Evidence: decision-gate-2.md (pre-O4 binary addf993); limits from
-%% src/contig_assignment.c, src/pga-mpi-merge.c, src/work_split.c.
-%% =====================================================================
-
 \subsection{Limitations and future work}\label{sec:disc:future}
 
 \paragraph{Workload-aware load balancing.}
@@ -24,6 +14,7 @@ requires splitting self-alignments across ranks while reproducing FastGA's align
 
 \paragraph{GPU acceleration.}
 Syncmer selection and radix sorting are regular, data-parallel passes over
-packed 2-bit sequence and candidates for GPU offload, but they now take
-a small share of run time; alignment, which dominates, is irregular and
-harder to offload.
+packed 2-bit sequence and candidates for GPU offload. They now take a small
+share of the total time, though, so it is an open question whether
+offloading them is worth the minute performance gain, if any. Alignment, which dominates, is
+irregular and harder to offload.

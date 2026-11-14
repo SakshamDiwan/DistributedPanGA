@@ -9,8 +9,6 @@
 
 \documentclass[pdflatex,sn-nature]{sn-jnl}
 
-%% The class adds a 6 mm binding gutter (two-sided print layout), which shifts
-%% odd and even pages in opposite directions on screen. Remove it.
 \geometry{bindingoffset=0pt}
 
 %%%% Packages
@@ -41,7 +39,10 @@
 
 \raggedbottom
 
-%% Visible placeholder for sections still to be written.
+\setlength\floatsep{10pt plus 2pt minus 2pt}
+\setlength\textfloatsep{10pt plus 2pt minus 2pt}
+\setlength\intextsep{10pt plus 2pt minus 2pt}
+
 \newcommand{\TODO}[1]{\textcolor{red}{[TODO: #1]}}
 
 \begin{document}
@@ -66,15 +67,28 @@
 \affil[3]{\orgdiv{Applied Mathematics and Computational Research Division}, \orgname{Lawrence Berkeley National Laboratory}, \orgaddress{\street{1 Cyclotron Road}, \city{Berkeley}, \postcode{94720}, \state{California}, \country{USA}}}
 
 %% Bioinformatics structured abstract (150 words recommended in total)
-\abstract{\textbf{Motivation:} Self-aligning a pangenome of $H$ haplotypes with FastGA finds matches across all haplotype pairs in a single scan of one sorted $k$-mer table, so the scan grows as $O(H \cdot L)$ rather than the $O(H^2 \cdot L)$ of explicit all-pairs alignment~\cite{fastga,garrison}. The table itself, however, grows with $H \cdot L$ and soon exceeds the memory of a single node. Distributing it across nodes removes that limit, but the result is only useful if it reproduces FastGA's alignments exactly.
+% \abstract{\textbf{Motivation:} Self-aligning a pangenome of $H$ haplotypes with FastGA finds matches across all haplotype pairs in a single scan of one sorted $k$-mer table, so the scan grows as $O(H \cdot L)$ rather than the $O(H^2 \cdot L)$ of explicit all-pairs alignment~\cite{fastga,garrison}. The table itself, however, grows with $H \cdot L$ and soon exceeds the memory of a single node. Distributing it across nodes removes that limit, but the result is only useful if it reproduces FastGA's alignments exactly.
+%
+% \textbf{Results:} DistributedPanGA partitions FastGA's index, seed generation and alignment across MPI ranks while keeping FastGA's alignment code. On yeast and primate pangenomes of 83\,Mbp to 2.63\,Gbp, every run is byte-identical to FastGA and, at equal core counts, 1.0--1.9$\times$ faster. On 90 human haplotypes of chromosome~6 (15.5\,Gbp), four nodes finish in 180\,s against FastGA's fastest measured one-node time of 1,480\,s; output is identical at 32 ranks, while at 64 ranks one of 1.38 million alignments is missing and is under investigation. Alignment dominates the run time, and its uneven cost across ranks limits further scaling.
+%
+% \textbf{Availability and Implementation:} DistributedPanGA is implemented in C with MPI and is available at \url{https://github.com/SakshamDiwan/DistributedPanGA}. Benchmark pangenomes are from Zenodo~\cite{pggbdata}. \TODO{license and archived release}
+%
+% \textbf{Contact:} egarris5@uthsc.edu, gg434@cornell.edu
+%
+% \textbf{Supplementary Information:} Supplementary data are available at \textit{Bioinformatics} online.}
 
-\textbf{Results:} DistributedPanGA partitions FastGA's index, seed generation and alignment across MPI ranks while keeping FastGA's alignment code. On yeast and primate pangenomes of 83\,Mbp to 2.63\,Gbp, every run is byte-identical to FastGA and, at equal core counts, 1.0--1.9$\times$ faster. On 90 human haplotypes of chromosome~6 (15.5\,Gbp), four nodes finish in 180\,s against FastGA's best one-node time of 1,480\,s; output is identical at 32 ranks, while at 64 ranks one of 1.38 million alignments differs and is under investigation. Alignment dominates the run time, and its uneven cost across ranks limits further scaling.
-
-\textbf{Availability and Implementation:} DistributedPanGA is implemented in C with MPI and is available at \url{https://github.com/SakshamDiwan/DistributedPanGA}. Benchmark pangenomes are from Zenodo~\cite{pggbdata}. \TODO{license and archived release}
-
-\textbf{Contact:} egarris5@uthsc.edu, gg434@cornell.edu
-
-\textbf{Supplementary Information:} Supplementary data are available at \textit{Bioinformatics} online.}
+\abstract{Aligning all haplotypes of a pangenome against each other with
+FastGA takes one scan of a single sorted $k$-mer table~\cite{fastga,garrison},
+but the table grows with the total sequence length and soon exceeds the
+memory of one node. DistributedPanGA spreads FastGA's index, seed generation
+and alignment across MPI ranks, keeps FastGA's alignment code, and must
+reproduce FastGA's output exactly. On yeast and primate pangenomes, every run
+is byte-identical to FastGA and, at equal core counts, up to 1.9$\times$
+faster. On 90 human chromosome-6 haplotypes, four nodes take 180\,s against
+1,480\,s for FastGA's fastest measured one-node run; the output is identical
+at 32 ranks, and at 64 ranks one of 1.38 million alignments is missing and
+under investigation. Alignment dominates the run time, and its uneven cost
+across ranks limits further scaling.}
 
 \maketitle
 
@@ -91,36 +105,41 @@
 
 \backmatter
 
-\bmhead{Acknowledgements}
-
-\TODO{acknowledgements}
-
-\bmhead{Author contributions}
+% \bmhead{Acknowledgements}
+%
+% \TODO{acknowledgements}
+%
+\bmhead{Work split}
 
 %% CRediT roles, e.g. First Author (Conceptualization, Software, Writing---original draft)
-S.D.\ and H.C.\ developed the software, ran the experiments and wrote the
-manuscript; S.D.\ led the in-memory seed exchange, the distributed alignment
-and the yeast and primate evaluation, and H.C.\ the extraction I/O, the
-large-count exchanges and the human evaluation. S.C., E.G.\ and G.G.\ conceived
-and supervised the project. \TODO{confirm roles}
+Saksham Diwan and Harshaan Chugh developed the software, ran the experiments
+and wrote the manuscript. Saksham Diwan led the in-memory seed exchange, the
+distributed alignment and the yeast and primate evaluation; Harshaan Chugh
+led the extraction I/O, the large-count exchanges and the human evaluation.
 
-\bmhead{Supplementary data}
+\bmhead{Generative AI disclosure}
 
-Supplementary data are available at \textit{Bioinformatics} online.
+We used Claude to edit the wording of this report, so that our
+ideas come across clearly, and to help produce the figures. The experiments
+and analyses are our own.
 
-\bmhead{Conflict of interest}
-
-None declared.
-
-\bmhead{Funding}
-
-\TODO{funding sources and grant numbers}
-
-\bmhead{Data availability}
-
-All pangenomes are public on Zenodo~\cite{pggbdata}. The job scripts behind
-every result and the checksums of the inputs and FastGA reference outputs
-are in the repository's \texttt{jobs/} directory.
+% \bmhead{Supplementary data}
+%
+% Supplementary data are available at \textit{Bioinformatics} online.
+%
+% \bmhead{Conflict of interest}
+%
+% None declared.
+%
+% \bmhead{Funding}
+%
+% \TODO{funding sources and grant numbers}
+%
+% \bmhead{Data availability}
+%
+% All pangenomes are public on Zenodo~\cite{pggbdata}. The job scripts behind
+% every result and the checksums of the inputs and FastGA reference outputs
+% are in the repository's \texttt{jobs/} directory.
 
 \bibliography{ref}
 

@@ -1,12 +1,3 @@
-%% =====================================================================
-%% Results / Scaling across datasets -- owner: Harshaan.
-%% Measurements only; interpretation in sec/harshaan/disc-scaling.tex.
-%% Sources: fig/table_pipeline.tex, fig/table_perrank.tex, Table tab:human;
-%% human per-pair task times from PGA_PAIR_TASKS (jobs 61277457, 61277456);
-%% primates14 largest task from docs/agent/decision-gate-2.md (earlier build,
-%% same alignment code). Figure: fig/make_scaling_fig.py.
-%% =====================================================================
-
 \subsection{Scaling across datasets}\label{sec:results:scaling}
 
 Fig.~\ref{fig:scaling} compares the four datasets. At the largest doubling
@@ -24,20 +15,13 @@ the most expensive pair takes 773\,s, about 7\% of all alignment work
 (measured with an earlier build that runs the same alignment code). From 32
 to 64 ranks on hsapiens90.chr6, the alignment stage falls from 252.20\,s to
 151.92\,s, while the average rank's alignment time falls from 187.12\,s to
-100.47\,s; the sort falls from 22.65\,s to 18.16\,s. Peak memory per rank
-falls from 22.9\,GB to 14.1\,GB, and memory summed over ranks rises from
-675\,GB to 747\,GB.
+100.47\,s; the sort falls from 22.65\,s to 18.16\,s.
 
-\begin{figure}[h]
+\begin{figure}[htbp]
 \centering
-\includegraphics[width=\textwidth]{fig/scaling_summary.pdf}
+\includegraphics[width=0.7\textwidth]{fig/scaling_summary.pdf}
 \caption{Scaling across the four datasets. (a) Speedup of the total time
 over each dataset's smallest run; dotted lines show ideal scaling.
 (b) Slowest rank's alignment time divided by the average
 (Table~\ref{tab:perrank} and Section~\ref{sec:results:human}).}\label{fig:scaling}
-\par\noindent Alt text: Two line plots against ranks. Yeast7 and the human
-dataset stay close to ideal speedup, primates4.chr6 falls below it, and
-primates14.chr6 stops improving after 32 ranks. Alignment imbalance rises
-to 6.6 on primates14.chr6 at 64 ranks but stays below 1.5 on the human
-dataset.
 \end{figure}

@@ -1,0 +1,14 @@
+\subsection{Questions}\label{sec:disc:questions}
+\begin{enumerate}
+\item \textbf{Frequency cutoff.} Both tools used FastGA's default cutoff,
+  $f=10$, which drops $k$-mers that occur ten or more times, such as those
+  shared by ten or more haplotypes. This affects primates14.chr6 (14
+  haplotypes) and hsapiens90.chr6 (90). How do running time, scaling and
+  the comparison with FastGA change with a cutoff that grows with the number
+  of haplotypes?
+\item \textbf{Weak scaling.} Equal input per rank does not mean equal
+  alignment work in a self-alignment: at 83\,Mbp per rank, the aligned bases
+  per rank grow 7.9$\times$ from yeast7 to primates14.chr6
+  (Table~\ref{tab:weak}). Is weak scaling a meaningful measure for this
+  workload at all?
+\end{enumerate}

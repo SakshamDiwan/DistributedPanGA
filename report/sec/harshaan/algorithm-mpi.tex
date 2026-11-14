@@ -1,11 +1,3 @@
-%% =====================================================================
-%% Algorithm / Data movement -- owner: Harshaan (design level only).
-%% Saksham owns the O2/O4 implementation text; keep code-level detail there.
-%% Describes the CURRENT pipeline: in-memory seeds (bce56a4, a2cf364).
-%% Verified against src/dsort.c, src/chunked_exchange.[ch],
-%% src/contig_assignment.c, src/pga-mpi-merge.c, src/fastga_pipeline.c.
-%% =====================================================================
-
 \subsection{Data movement between ranks}\label{sec:alg:mpi}
 
 Ranks exchange data twice: records during the distributed sort, and seeds
@@ -16,7 +8,7 @@ buckets by the first five bases of its k-mer. One all-reduce of bucket
 counts lets every rank compute the same split into $P$ contiguous bucket
 ranges of about $1/P$ of the records, by the rule FastGA uses to divide its
 index among threads. Each rank then radix-sorts its slice and recomputes
-LCPs, correcting the first against the preceding rank's last k-mer.
+LCPs, correcting the first against the last k-mer of the preceding non-empty rank.
 Because buckets are never split, seed generation needs no communication:
 FastGA's merge pairs only occurrences sharing their first 12 bases, so
 every candidate group, including the full count tested against the cutoff,
@@ -24,20 +16,11 @@ lies on one rank, and each rank produces exactly its share of FastGA's
 seeds.
 
 \paragraph{Seed redistribution.} Each seed is sent to the rank that owns
-its contig pair. Every rank computes the same pair-to-rank map from contig
-lengths alone, giving pairs in decreasing order of length product to the
-rank with the smallest accumulated product, so no communication is needed.
-The merge writes each seed directly into an in-memory buffer for its
-destination rank.
+its contig pair (Section~\ref{sec:alg:alignment}); the merge writes it
+straight into an in-memory buffer for that rank.
 
-\paragraph{Bounded exchanges.} Both exchanges are personalized all-to-all
-transfers of fixed-size records whose volume per rank can exceed the 32-bit
+\paragraph{Bounded exchanges.} Both exchanges are all-to-all
+exchanges of fixed-size records whose volume per rank can exceed the 32-bit
 counts of \texttt{MPI\_Alltoallv}. Large transfers are split into rounds
 of whole records, and the result is byte-identical to a single unbounded
-exchange for any number of rounds (Section~\ref{sec:impl:o2}). The per-round
-budget bounds only
-staging memory: the complete send and receive data stay resident (during
-the sort, a rank holds its extracted records, their packed send copy and
-its received slice), so peak memory per rank is set by its volume of
-records and seeds, not by the budget (Section~\ref{sec:implementation}).
-% CHECK with Saksham: memory sentences vs. his O4 subsection (avoid overlap).
+exchange for any number of rounds (Section~\ref{sec:impl:o2}).

@@ -1,11 +1,3 @@
-%% =====================================================================
-%% System and methods -- owner: Harshaan.
-%% Terminology (keep consistent across the paper): GDB, GIX, closed syncmer,
-%% adaptive seed (adaptamer), frequency cutoff f, contig pair, rank, record
-%% (one indexed k-mer occurrence), seed (a pair of occurrences).
-%% Verified against src/ and notes/GIXmake_dump.c (FastGA 178afcb).
-%% =====================================================================
-
 \subsection{FastGA}\label{sec:methods:fastga}
 
 FastGA~\cite{fastga} aligns genome assemblies on a single shared-memory
@@ -34,7 +26,7 @@ quadratically in~$H$.
 \subsection{DistributedPanGA}\label{sec:methods:overview}
 
 DistributedPanGA~\cite{dpanga} computes the same self-alignment as FastGA
-with $P$ single-threaded MPI ranks, which read one shared GDB on demand.
+with $P$ MPI ranks, which read one shared GDB on demand.
 The pipeline has six stages (Section~\ref{sec:algorithm}).
 \begin{enumerate}
 \item \textbf{Extraction:} each rank emits one record per sampled k-mer
@@ -51,9 +43,10 @@ The pipeline has six stages (Section~\ref{sec:algorithm}).
   union of the per-rank files is the result.
 \end{enumerate}
 
-Syncmer selection, the adaptamer merge, alignment and PAF conversion are
-FastGA code, kept close to upstream. Ours are the extraction partition and
-in-window k-mer packing, the distributed sort, an adapter that presents a
+The adaptamer merge, alignment and PAF conversion are FastGA code, kept
+close to upstream. Ours are extraction (FastGA's syncmer selection,
+reimplemented, with our own partition and in-window k-mer packing), the
+distributed sort, an adapter that presents a
 rank's slice through FastGA's index interface in place of a GIX file, the
 deterministic assignment of contig pairs to ranks, and the two bounded
 all-to-all exchanges (Section~\ref{sec:alg:mpi}).
@@ -62,5 +55,3 @@ Our correctness criterion is exact agreement with an independent
 single-node FastGA run on the same GDB: both PAF files are sorted
 bytewise, keeping duplicates, and compared byte for byte. This multiset
 equality is stronger than matching alignment counts.
-% TODO: state the FastGA reference commit (178afcb) in the experimental
-%       setup (open-questions.txt Q1).

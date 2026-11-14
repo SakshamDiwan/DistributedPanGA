@@ -1,10 +1,4 @@
-%% =====================================================================
-%% Algorithm / Seed extraction -- owner: Harshaan.
-%% Selection verified against src/extract.c:scan_contig and
-%% notes/GIXmake_dump.c (scan_thread). Validation lives in impl-o1.tex.
-%% =====================================================================
-
-\subsection{Seed extraction}\label{sec:alg:extraction}
+\subsection{K-mer extraction}\label{sec:alg:extraction}
 
 Extraction reproduces FastGA's k-mer sampling exactly. Each rank scans a
 contiguous range of whole contigs, balanced by length, in windows of up to
@@ -17,8 +11,7 @@ Each selected position yields up to two records: the forward 40-mer
 starting at $j$ and the reverse complement of the 40-mer ending at the last
 base of the syncmer; a strand is skipped where its 40-mer would leave the
 contig. A record stores the 2-bit packed k-mer with its contig, position
-and strand. Occurrences, not k-mer counts, are needed because each seed
-pairs two occurrences.
+and strand.
 
 Every window after the first is extended 40 bases to the left, so that
 reverse-complement k-mers and forward k-mers starting before the window

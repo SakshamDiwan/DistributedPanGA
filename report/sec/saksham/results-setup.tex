@@ -1,9 +1,6 @@
-%% Results / Experimental setup -- owner: Saksham. The human runs (Harshaan)
-%% use the same settings (jobs/report/config.sh).
-
 \subsection{Experimental setup}\label{sec:results:setup}
 
-We ran DistributedPanGA and FastGA on the three pangenomes in
+We ran DistributedPanGA and FastGA on the four pangenomes in
 Table~\ref{tab:datasets} and compared their output and their running time.
 DistributedPanGA ran on one to four nodes; FastGA, which uses threads on a
 single machine, ran on one node. All runs used dedicated CPU nodes on Perlmutter,
@@ -19,20 +16,19 @@ The stages are extraction; the distributed sort; seed generation and
 redistribution (Section~\ref{sec:methods:overview}, stages 3--4); and
 alignment with PAF output (stages 5--6). Ranks that finish extraction
 early wait at the start of the sort for the slowest one; we count that wait
-as extraction, not as sort. Each configuration ran three times. We report
-the run with the median total time, so its stage times add up to its total.
+as extraction, not as sort. Each yeast and primate configuration ran three times. We report the run
+with the median total time, so its stage times add up to its total. Times
+are given to two decimals; speedups, ratios and percentages are rounded.
+Section~\ref{sec:results:human} describes the human runs.
 
 FastGA ran on one node with $t$ threads. Its time is the sum of
-\texttt{GIXmake}, \texttt{FastGA} and \texttt{ALNtoPAF}. \texttt{GIXmake}
-accepts at most 32 threads, so for $t>32$ it ran with 32. \texttt{FastGA}
-crashes at startup with 125 or more threads on all three datasets, so we
-measured it up to $t=64$. \texttt{FAtoGDB} is excluded because both tools
+\texttt{GIXmake}, \texttt{FastGA} and \texttt{ALNtoPAF}. On the yeast and
+primate datasets, \texttt{GIXmake} accepts at most 32 threads, so for
+$t>32$ it ran with 32, and \texttt{FastGA} crashes at startup with 125 or
+more threads, so we measured it up to $t=64$. \texttt{FAtoGDB} is excluded because both tools
 start from the same GDB.
 
-A run is correct if the concatenation of its per-rank PAF files, sorted, is
-byte-identical to FastGA's sorted PAF for the same input.
-
-\begin{table}[h]
+\begin{table}[htbp]
 \caption{Datasets. yeast7 is seven \textit{S.~cerevisiae} strains; the
 primate and human sets are chromosome~6 assemblies from the PGGB benchmark
 collection~\cite{pggbdata}. Contigs are the GDB's gap-free sequences.}\label{tab:datasets}

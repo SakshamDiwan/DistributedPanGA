@@ -1,18 +1,20 @@
-%% Algorithm / distributed alignment -- owner: Saksham.
-
 \subsection{Distributed alignment}\label{sec:alg:alignment}
-Each rank aligns the contig pairs it owns (Section~\ref{sec:alg:mpi}) with
-FastGA's code. The map covers all $N(N+1)/2$ pairs of the $N$ contigs,
-including each contig with itself; ties are broken by contig index, so
-every rank computes the same map. Both orientations of a pair map to the
-same rank. Seeds are split into two sets: same strand and opposite strands.
+Each rank aligns the contig pairs it owns with FastGA's code. Every rank
+computes the same pair-to-rank map from contig lengths alone, so no
+communication is needed. The map covers all $N(N+1)/2$ pairs of the $N$
+contigs, including each contig with itself, and gives pairs in decreasing
+order of length product to the rank with the smallest total so far; ties
+are broken by contig index. Both orientations of a pair map to the same
+rank. The map balances length products, not alignment cost.
 
-Each rank groups its seeds by contig pair, sorts them by diagonal, and
+Seeds are split into two sets: same strand and opposite strands. Each rank
+groups its seeds by contig pair, sorts them by diagonal, and
 aligns each pair and strand set with FastGA's routine, which chains seeds,
 extends chains into local alignments and removes redundant ones. Each rank
 writes its own \texttt{.1aln} file and converts it to PAF with
 \texttt{ALNtoPAF}; the output is the union of these files.
 
 A pair's alignments depend only on its seeds and its two contigs, and all
-its seeds reach one rank, so each rank produces exactly FastGA's alignments
-for its pairs. The map balances contig length products, not alignment cost.
+its seeds reach one rank, so by design each rank produces FastGA's alignments
+for its pairs; one human run is missing one alignment
+(Section~\ref{sec:results:human}).

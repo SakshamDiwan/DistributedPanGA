@@ -1,10 +1,3 @@
-%% =====================================================================
-%% Implementation / Extraction I/O (O1) -- owner: Harshaan.
-%% No numbers here: measured results belong in the evaluation.
-%% Evidence: docs/agent/o1-0-results.md (strace, user/sys time),
-%% docs/agent/o1a-results.md (gold MATCH, verify-phase1), tests/unit.
-%% =====================================================================
-
 \subsection{Extraction I/O}\label{sec:impl:o1}
 
 Per-rank timers showed that extraction dominated early runs and barely
@@ -26,7 +19,5 @@ previous implementation and to a record dump from an instrumented copy of
 FastGA's \texttt{GIXmake}. Unit tests with a 64-base window compare against
 a single-window run, check that both paths fire and together account for
 every record, and run under address and undefined-behaviour sanitizers.
-End-to-end runs match the FastGA reference
+End-to-end yeast and primate runs match the FastGA reference
 (Section~\ref{sec:methods:overview}).
-% TODO(Harshaan): extraction speedups go in the evaluation, not here
-%   (historical numbers: author-notes/harshaan-evidence.txt E2).

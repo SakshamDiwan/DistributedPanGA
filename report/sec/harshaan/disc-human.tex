@@ -1,15 +1,6 @@
-%% =====================================================================
-%% Discussion / Human scale -- owner: Harshaan.
-%% Numbers in sec/harshaan/results-human.tex. The 64-rank difference is
-%% stated as open; do not attribute it to FastGA without proof
-%% (trace so far: identical seeds, alignment-stage difference; see
-%% docs/agent/state.md).
-%% =====================================================================
-
 \subsection{Human scale}\label{sec:disc:human}
 
-FastGA handled hsapiens90.chr6 on a single node in under half an hour with
-15\,GB of memory, so at the scale of one chromosome, distribution shortens
+FastGA handled hsapiens90.chr6 on a single node in under half an hour, so at the scale of one chromosome, distribution shortens
 the run rather than making it possible. The input is six times larger than
 primates14.chr6, yet FastGA's best time is about the same on both, and
 DistributedPanGA is several times faster on it. A likely reason is that the
@@ -18,14 +9,7 @@ least $f=10$ times and yield no seeds, leaving less alignment work. We did
 not measure this directly. Where single-node FastGA reaches its
 limits, in more haplotypes or whole genomes, remains to be measured.
 
-DistributedPanGA's speed comes with memory: summed over ranks it used about
-45--50 times FastGA's peak. Each rank holds its records and seeds in memory,
-and ranks are single-threaded, so more ranks, not threads, are the way to use
-a node's cores.
-
 The single alignment missing at 64 ranks is the only disagreement with
-FastGA across all datasets and rank counts. Because the seeds agree, it
-arises in the alignment stage; whether it lies in our pipeline or in an
-order-dependent edge case of FastGA's alignment code is under investigation.
+FastGA across all datasets and rank counts. We assume an edge case in our pipeline or in FastGA and will investigate it.
 Until it is explained, exact agreement is
 established for human chromosome~6 at 32 ranks only.
