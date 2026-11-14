@@ -1,0 +1,48 @@
+%% Results / Experimental setup -- owner: Saksham. The human runs (Harshaan)
+%% use the same settings (jobs/report/config.sh).
+
+\subsection{Experimental setup}\label{sec:results:setup}
+
+We ran DistributedPanGA and FastGA on the three pangenomes in
+Table~\ref{tab:datasets} and compared their output and their running time.
+DistributedPanGA ran on one to four nodes; FastGA, which uses threads on a
+single machine, ran on one node. All runs used dedicated CPU nodes on Perlmutter,
+each with 128 cores and 512\,GB of memory. Both tools used FastGA's default parameters.
+
+A run with $P$ ranks on $n$ nodes places
+$P/n$ ranks on each node and pins each rank to an equal share of the node's
+cores. A rank is single-threaded except during the local $k$-mer sort, which
+uses four threads.
+
+We report the time of each of four stages and their sum, the total time.
+The stages are extraction; the distributed sort; seed generation and
+redistribution (Section~\ref{sec:methods:overview}, stages 3--4); and
+alignment with PAF output (stages 5--6). Ranks that finish extraction
+early wait at the start of the sort for the slowest one; we count that wait
+as extraction, not as sort. Each configuration ran three times. We report
+the run with the median total time, so its stage times add up to its total.
+
+FastGA ran on one node with $t$ threads. Its time is the sum of
+\texttt{GIXmake}, \texttt{FastGA} and \texttt{ALNtoPAF}. \texttt{GIXmake}
+accepts at most 32 threads, so for $t>32$ it ran with 32. \texttt{FastGA}
+crashes at startup with 125 or more threads on all three datasets, so we
+measured it up to $t=64$. \texttt{FAtoGDB} is excluded because both tools
+start from the same GDB.
+
+A run is correct if the concatenation of its per-rank PAF files, sorted, is
+byte-identical to FastGA's sorted PAF for the same input.
+
+\begin{table}[h]
+\caption{Datasets. yeast7 is seven \textit{S.~cerevisiae} strains; the
+primate sets are chromosome~6 assemblies from the PGGB benchmark
+collection~\cite{pggbdata}. Contigs are the GDB's gap-free sequences.}\label{tab:datasets}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Dataset & Bases & Sequences & Contigs & FastGA alignments \\
+\midrule
+yeast7 & 83.4\,Mbp & 112 & 119 & 43,126 \\
+primates4.chr6 & 672.5\,Mbp & 4 & 100 & 1,547,485 \\
+primates14.chr6 & 2.63\,Gbp & 52 & 82 & 4,577,556 \\
+\botrule
+\end{tabular}
+\end{table}

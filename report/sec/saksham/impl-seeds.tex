@@ -1,0 +1,17 @@
+%% Implementation / in-memory seeds -- owner: Saksham.
+
+\subsection{In-memory seeds}\label{sec:impl:o4}
+Seed generation used to write each destination's seeds to a scratch file.
+The exchange read these files and wrote the received seeds to another file,
+which was read twice more: to count seeds per contig and to load them for
+alignment.
+
+Seeds now go into one growing buffer per destination rank. The exchange
+copies them into one receive buffer and frees each send buffer after
+sending; counting and loading read the receive buffer, which is freed after
+loading. On one rank, no copy is made. Alignment files (\texttt{.las},
+\texttt{.1aln}) still go to scratch.
+
+The output is unchanged and seeds no longer touch files. The cost is
+memory: a rank holds every seed it sends and receives, plus the exchange's
+staging buffers, which the round budget bounds.

@@ -1,0 +1,64 @@
+%% Discussion / yeast and primate results -- owner: Saksham.
+%% Interprets the measurements in sec/saksham/results-small.tex.
+
+\subsection{Small-dataset results}\label{sec:disc:small}
+
+\paragraph{Alignment limits scaling.} On primates14.chr6 every stage except
+alignment keeps getting faster up to 64 ranks, while alignment stops
+improving at about 1,200\,s. Table~\ref{tab:perrank} points to how the
+work is assigned. The average rank's alignment time halves each time the
+ranks double, as it should, but the slowest rank's barely changes, and the
+alignment stage lasts as long as that slowest rank. The work is therefore
+divisible in total but unevenly assigned: at 64 ranks the fastest rank
+finishes in 32\,s and waits about 20 minutes for the slowest. We think the cause is the unit of assignment. A rank aligns all seeds of
+the contig pairs it owns, and a pair is never split, so one expensive pair
+sets a lower bound on the alignment stage.
+
+\paragraph{primates4.chr6 at 16 ranks.} Efficiency drops from 93\% at 8
+ranks to 65\% at 16. The same pattern appears on a smaller scale: the
+slowest rank's alignment time grows from 1.23 to 1.70 times the average
+(Table~\ref{tab:perrank}).
+
+\paragraph{Extraction is divided the same way.} Extraction also assigns
+whole contigs to ranks, so it becomes uneven once there are more ranks than
+large contigs. On primates4.chr6 each rank extracts 166--170\,Mbp at 4
+ranks but 14--153\,Mbp at 8; on primates14.chr6 at 64 ranks, 36 of the 64
+ranks extract nothing. Extraction takes only seconds here, so the cost is
+small, but it is the same limit as in alignment: work that comes in units
+too large to split evenly.
+
+\paragraph{Weak scaling.} At a fixed number of bases per rank, seed
+generation and redistribution stay flat. Extraction grows because whole
+contigs cannot be divided evenly across more ranks, and the sort grows
+because its all-to-all exchange takes longer with more ranks. Alignment grows
+18$\times$ from yeast7 to primates14.chr6, for two reasons
+(Table~\ref{tab:weak}).
+
+First, equal input does not mean equal alignment work. The work depends on
+how much of the input matches other input: a stretch of one assembly that
+matches 13 others is aligned 13 times. The 14 primate assemblies match each
+other almost end to end, so each rank aligns 7.9$\times$ as many bases as on
+yeast7, and the average rank's alignment time grows by a similar
+8.6$\times$. The number of alignments matters too: primates4.chr6 aligns
+about as many bases per rank as yeast7 but in 4.5$\times$ as many
+alignments, and takes 1.7$\times$ as long.
+
+Second, the stage lasts as long as its slowest rank, and the work is
+unevenly assigned (Section~\ref{sec:disc:small}, first paragraph). On
+primates14.chr6 the slowest rank takes 3.2$\times$ the average, which
+together with the first factor accounts for its 28$\times$ growth.
+
+\paragraph{Against FastGA.} DistributedPanGA is faster than FastGA at every
+equal core count tested. Both tools run FastGA's alignment code, so the
+difference comes from how the work is split. On yeast7 and primates4.chr6
+the gap widens with cores. On primates14.chr6 it narrows, from 1.8$\times$
+at 16 cores to 1.2$\times$ at 64, because both tools stop improving after 32
+cores: from 32 to 64, FastGA speeds up by 1.04$\times$ and DistributedPanGA
+not at all. This fits a limit both share: FastGA, like DistributedPanGA,
+aligns each contig pair on a single thread, so the most expensive pair
+bounds both.
+
+On one node, DistributedPanGA with 16 ranks matches FastGA's fastest time
+(64 threads); on two nodes it is 1.2$\times$ faster. Four nodes add nothing,
+for the reason above: until the work is assigned more evenly, more nodes do
+not shorten the slowest rank.

@@ -1,0 +1,36 @@
+%% Introduction -- owner: Saksham.
+%% Only claims supported by the project: the abstract, Section 2.1 and our
+%% measurements. Citations reuse those already made there.
+
+\section{Introduction}\label{sec:introduction}
+
+\subsection{Motivation}\label{sec:intro:motivation}
+FastGA~\cite{fastga} aligns genome assemblies on one shared-memory node. To
+self-align a pangenome, all haplotypes go into one index and are aligned
+against themselves, so one scan of the index finds matches across every
+pair of haplotypes~\cite{fastga,garrison}. The index grows with the total
+sequence length and soon exceeds the memory of a single node.
+
+\subsection{Problem}\label{sec:intro:problem}
+We distribute FastGA's self-alignment across nodes. The result is only
+useful if it reproduces FastGA's alignments exactly, so we require
+byte-identical output.
+
+\subsection{Prior work}\label{sec:intro:prior}
+HySortK~\cite{hysortk} counts $k$-mers in distributed memory by sorting.
+ELBA~\cite{elba} generates contigs for long-read assembly in distributed
+memory.
+\TODO{other prior work, with verified citations}
+
+\subsection{Contributions}\label{sec:intro:contributions}
+\begin{itemize}
+\item DistributedPanGA, an MPI implementation of FastGA's self-alignment,
+  byte-identical to FastGA at every rank and node count tested.
+\item All-to-all exchanges of more than $2^{31}$ bytes per rank, and seeds
+  kept in memory from generation to alignment.
+\item An evaluation on three pangenomes of 83\,Mbp to 2.63\,Gbp: at equal
+  core counts DistributedPanGA is 1.0--1.9$\times$ faster than FastGA, and
+  on primates14.chr6 two nodes are 1.2$\times$ faster than FastGA's fastest
+  one-node run.
+\end{itemize}
+\TODO{human-scale result (Harshaan), once the runs finish}

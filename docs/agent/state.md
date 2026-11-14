@@ -73,6 +73,20 @@ Merge in order: #9 → #10 → #11 → this.
 
 ## Open items (recorded, not fixed)
 
+- **Extraction wait is timed as sort (found 2026-11-14):** each rank stops its
+  extraction timer when it finishes (`pga-mpi-merge.c:324`, no barrier), then
+  waits for the slowest extractor in the sort's first `MPI_Allreduce`
+  (`dsort.c:384`). Stages are reduced separately with `MPI_MAX`, so the wait
+  is counted twice: in `extract_s` (slowest rank) and in `sort_s` (fastest
+  rank), and `total_s` overstates. Size = extraction spread across ranks:
+  ~0 on yeast7 and primates4 at 4 ranks; ~2.6 s on primates4 at 8/16 ranks;
+  4-9 s on primates14 (extraction splits whole contigs, so at 64 ranks 36 of
+  64 ranks extract nothing). Report numbers are corrected in post-processing
+  (`report/fig/make_figs.py`, `fix_sort_wait`: sort = max_r(extract_r +
+  sort_r) - max_r(extract_r), from the `[o1-0]` lines); corrected totals agree
+  with the stopwatch wall time to ~1 s. **Fix:** `MPI_Barrier` after
+  `extract_to_records`, before `t_extract` is taken, so the wait counts as
+  extraction. Runs made before the fix need the post-processing correction.
 - **127-rank limit:** the contig-pair map is `int8_t`, and two `ncontig²`
   maps are live at once.
 - **Large self-alignment tasks floor scaling:** primates14's largest is

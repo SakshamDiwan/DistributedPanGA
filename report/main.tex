@@ -9,6 +9,10 @@
 
 \documentclass[pdflatex,sn-nature]{sn-jnl}
 
+%% The class adds a 6 mm binding gutter (two-sided print layout), which shifts
+%% odd and even pages in opposite directions on screen. Remove it.
+\geometry{bindingoffset=0pt}
+
 %%%% Packages
 \usepackage{graphicx}
 \usepackage{multirow}
