@@ -1,0 +1,16 @@
+# Dataset provenance: hsapiens90.chr6.masked.fa.gz
+source_record: Zenodo 10.5281/zenodo.7937947 (pangenomes from the PGGB paper, "Building pangenome graphs")
+source_url:    https://zenodo.org/api/records/7937947/files/hsapiens90.chr6.masked.fa.gz/content
+downloaded:    2026-11-13 by the author (curl, login node, 967 s)
+md5 (Zenodo):  a6513914ade700e4aef4a29290f4bec8 -> verified OK
+sha256:        93269604dbfeda1c123f132bd1f75798036a7075ab6cc0f37149283ea5925e3d
+
+# index (2026-11-13T22:49:54Z, job 61244453)
+fastga:  178afcb at $HOME/FASTGA
+command: FAtoGDB hsapiens90_chr6.fa.gz; GIXmake -T16 -P<run tmp> hsapiens90_chr6
+
+# gold (2026-11-14T00:00:25Z, job 61244455)
+command: FastGA -1:gold -T32 hsapiens90_chr6; ALNtoPAF -T32 gold.1aln > gold.paf
+alignments: 1375248
+ac407ae36ac748c787117bcbc354be652b5277c0a02685b04f9a4e7ed8af47c6  gold.paf
+

@@ -27,6 +27,7 @@ kept as a record, so they are not general-purpose tools.
 | `pr1/` | instrumentation and memory validation | `docs/agent/pr1-results.md` |
 | `pr2/` | large-count exchange validation | `docs/agent/pr2-results.md` |
 | `step3/` | larger datasets, cost diagnostics, primates14 on 1 and 2 nodes | `docs/agent/decision-gate-{1,2}.md` |
+| `human/` | hsapiens90.chr6: index, FastGA gold (-T32, -T16), 32/64-rank runs, 64-rank traces | report §5.3, `docs/agent/state.md` |
 
 ## Safety notes
 

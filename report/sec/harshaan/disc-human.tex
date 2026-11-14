@@ -1,38 +1,31 @@
 %% =====================================================================
-%% Discussion / Human-scale limitations -- owner: Harshaan.
-%% CONDITIONAL. Three author-decision branches below; keep exactly one once
-%% the human jobs finish. Do not claim whole-human correctness without a
-%% gold MATCH. Do not claim FastGA "cannot" run human unless a run shows it.
+%% Discussion / Human scale -- owner: Harshaan.
+%% Numbers in sec/harshaan/results-human.tex. The 64-rank difference is
+%% stated as open; do not attribute it to FastGA without proof
+%% (trace so far: identical seeds, alignment-stage difference; see
+%% docs/agent/state.md).
 %% =====================================================================
 
+\subsection{Human scale}\label{sec:disc:human}
 
-\subsection{Human-scale validation}\label{sec:disc:human}
+FastGA handled hsapiens90.chr6 on a single node in under half an hour with
+15\,GB of memory, so at the scale of one chromosome, distribution shortens
+the run rather than making it possible. The input is six times larger than
+primates14.chr6, yet FastGA's best time is about the same on both, and
+DistributedPanGA is several times faster on it. A likely reason is that the
+90 haplotypes are nearly identical: most $k$-mers should then occur at
+least $f=10$ times and yield no seeds, leaving less alignment work. We did
+not measure this directly. Where single-node FastGA reaches its
+limits, in more haplotypes or whole genomes, remains to be measured.
 
-\TODO{Harshaan, after the human runs (index 61244453, FastGA reference 61244455, DistributedPanGA 61244457)}
+DistributedPanGA's speed comes with memory: summed over ranks it used about
+45--50 times FastGA's peak. Each rank holds its records and seeds in memory,
+and ranks are single-threaded, so more ranks, not threads, are the way to use
+a node's cores.
 
-%% DATA   hsapiens90.chr6 (Zenodo 7937947), 4,684,111,595 B gz,
-%%        md5 a6513914ade700e4aef4a29290f4bec8, ~15.5 Gbp, 90 haplotypes.
-%%        Pilot: 4 nodes x 16 ranks, -c 16. Gold: FastGA 178afcb, 1 node.
-%%
-%% BRANCH A -- gold produced and pilot MATCHes:
-%%   claim: exact agreement (sorted, duplicate-preserving PAF) with
-%%   independent FastGA on ~15.5 Gbp. Give wall/memory for both as
-%%   single runs (n = 1), same machine type.
-%% BRANCH B -- gold attempted, failed (time limit / OOM / crash):
-%%   state the exact constraint (e.g. 48 h single node limit, job id,
-%%   sacct state). Claim only what was measured; "did not finish within X
-%%   on one node" != "cannot". Correctness rests on smaller datasets.
-%% BRANCH C -- no gold; pilot ran:
-%%   claim: completed on the full input + the subset-level correctness
-%%   (yeast7 ... primates14 all MATCH). No exact whole-human claim.
-%%
-%% Points that hold in every branch:
-%% - Independent verification = match to FastGA; cross-rank consistency
-%%   (same output at different P) is weaker -- it shares our bugs.
-%% - Small-data extrapolation (time ~ H^2 L; seeds ~19 GB/Gbp from
-%%   primates) is an estimate, not evidence; 90 near-identical copies may
-%%   change seed density (FREQ = 10 cap).
-%% - Pilot is a single run: no variance estimate.
-%% - Known limits: 127-rank cap; O4 holds all seeds in RAM (no fallback;
-%%   OOM aborts the run). If the pilot needed 8 nodes, say so.
-%% Checklist: report/author-notes/human-checklist.txt
+The single alignment missing at 64 ranks is the only disagreement with
+FastGA across all datasets and rank counts. Because the seeds agree, it
+arises in the alignment stage; whether it lies in our pipeline or in an
+order-dependent edge case of FastGA's alignment code is under investigation.
+Until it is explained, exact agreement is
+established for human chromosome~6 at 32 ranks only.

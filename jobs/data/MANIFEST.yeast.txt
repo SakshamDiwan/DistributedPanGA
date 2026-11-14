@@ -1,0 +1,43 @@
+# Provenance for the yeast7 fixture and its independent FastGA gold.
+# Regenerate: place yeast7.fa.gz here, then run scripts/make_gold.sh inside a compute job
+# (Job ~/pga-jobs/week1/pga_w1_B.sbatch). This directory is a symlink into $SCRATCH (purged after ~8 weeks idle).
+
+generated_utc:   2026-09-25T20:39:20Z
+slurm_job:       58873948 (regular QOS, 1 CPU node)
+source_url:      http://hypervolu.me/~erik/yeast/cerevisiae.fa.gz  (downloaded 2026-09-25)
+input:           yeast7.fa.gz == cerevisiae.fa.gz byte-for-byte (sha256 below)
+input_contents:  112 sequences = 7 strains x 16 chromosomes, 83,530,630 bp;
+                 order S288C DBVPG6765 UWOPS034614 Y12 YPS128 SK1 DBVPG6044
+                 (names PanSN-style, e.g. S288C#1#chrI). The appendix's
+                 'samtools faidx ... DBVPG6044 DBVPG6765 S288C ...' command cannot match
+                 these names literally; its only possible effect is sample order.
+order_check:     alphabetical-order variant (../yeast-alpha) gives a byte-identical
+                 sorted gold.paf (43,126 lines), so contig order does not affect FastGA here.
+kmer_params:     KMER=40 TMER=12 SMER=8, FastGA defaults (-f10, -T8)
+fastga_bin:      $HOME/FASTGA
+fastga_revision: 178afcbba2f79abc1686e3bd2b8a916969467e83 (same binary hashes as the small-fixture MANIFEST)
+pipeline_commit: b4f5d3b30d7704d27ff8e20767c7db92c5429986 (not used to produce gold)
+
+alignments_in_gold_paf: 43126   (historical reference: 43,126 -- reproduced)
+gold_tuples:            64378260 (byte-identical to GIXshow of stock .gix, make_gold step 5)
+gold_lcp_kmers_simple:  14547417
+note: yeast7.1gdb hash differs run-to-run (FAtoGDB embeds provenance); compare sequences, not the .1gdb hash.
+
+# sha256
+385292945391ab88777fb1fbd0e8a9407db20571c992b0ccfefb1a827db97e08  yeast7.fa.gz
+385292945391ab88777fb1fbd0e8a9407db20571c992b0ccfefb1a827db97e08  cerevisiae.fa.gz
+3981948bef1642ec0f90698bf391e402ec956d03cd3d7efe9b9450cda55f6d31  yeast7.1gdb
+e232981b4cc6f2b0f1d6e755e7066c3d78e7c4b7523b15dd506d1dd841c28476  .yeast7.bps
+850a46c643830207e44ed09fa55f0eb6d0b489fce727ff71d2bba1efde6741a9  yeast7.gix
+cd42300d1bb443ac33be1f4bfdbf63b57ae8d8af1751f5befbc162e057f956be  gold.paf
+5b11dc46e0db7043df0dafa3abe8ec80c86866a0d0fb87faa57070eba54b6cd5  gold.1aln
+9e6abe47783e470fabf3a8a0b9362b198a68e7efa05b8ecd7cb9e3d28107ea2d  gold.tuples
+ca39e0aa0362854d5892b304fcd82549221d1ad3be852d84f796cf854f731263  gold.lcp.kmers.simple
+ca7e750d95688a304f1eb46bf62efbe525b8dc97656806c97952053fc7813c1f  ../yeast-alpha/yeast7.fa.gz
+ebb70d69b8d87cb0463f909be3eea84bac95eda0be02d8b074ef50a1547a3863  ../yeast-alpha/gold.paf
+98ecdef17ad89c4fa5b39683e70277e605fcb2bc081cd4de90880c627f348708  $HOME/FASTGA/FAtoGDB
+9835bd29dee58839d07d62387f794386050f77902b53be01c412d84fe1173968  $HOME/FASTGA/GIXmake
+898aef15459f185dd0a5b7218258e3c516d6bcc33e1b0f7adb08d2b478106663  $HOME/FASTGA/GIXshow
+2110e2fb402fd0127fcc01f15fca80891abe249355372de6a0423d6d13c854c1  $HOME/FASTGA/FastGA
+0790e5a0ad084911f473558625c0fe6ec2f5a651e33be6dfd1d764f247914682  $HOME/FASTGA/ALNtoPAF
+bb8fc840bbc0aa6abc47393f81cfbbd05e28cc0b3a0f8597b2e54605f233c9d3  $HOME/DistributedPanGA/notes/GIXmake_dump
