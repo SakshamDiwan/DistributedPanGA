@@ -87,6 +87,23 @@ Merge in order: #9 → #10 → #11 → this.
   with the stopwatch wall time to ~1 s. **Fix:** `MPI_Barrier` after
   `extract_to_records`, before `t_extract` is taken, so the wait counts as
   extraction. Runs made before the fix need the post-processing correction.
+  Fix is on branch `timing-barrier` (26b80da, not merged; also logs
+  `extract_wait_s` per rank and keeps `extract_s` as the rank's own time).
+- **hsapiens90.chr6 at 64 ranks misses 1 of 1,375,248 alignments (found
+  2026-11-14, open):** reproducible (jobs 61244457, 61277456); 32 ranks match
+  exactly (61255434, 61277457); FastGA identical at -T16/-T32. Missing line:
+  same-strand self-alignment of `HG03453#2#JAGYVV010000063.1` (GDB contig
+  1072), a 6,419,539-6,423,436 vs b 6,419,557-6,423,438. `PGA_PAIR_TASKS`:
+  pair (1072,1072,N) has the same 229 seeds and 6 hits at 32 and 64 ranks,
+  but nlass 1 vs 0, so the difference is in alignment. Lead (not proven):
+  `align_contigs` (identical to upstream FastGA 178afcb apart from debug
+  code) handles a self-hit that straddles the main diagonal by setting only
+  `path->abpos = path->aepos = 0`; `bbpos/bepos` keep the previous pair's
+  values and feed `eant = aepos + bepos`, so later chains can be skipped.
+  Trace build on branch `trace-align` (`PGA_TRACE_ANCHOR=1072`, job 61278174)
+  shows the stale `b=87063320-87150831` from pair (1072,367). To prove: rerun
+  the 32-rank trace (61278175 was cancelled), then test the one-line fix
+  (also zero `bbpos/bepos`) at 32 and 64 ranks.
 - **127-rank limit:** the contig-pair map is `int8_t`, and two `ncontig²`
   maps are live at once.
 - **Large self-alignment tasks floor scaling:** primates14's largest is
