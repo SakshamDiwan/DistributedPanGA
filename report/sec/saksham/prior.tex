@@ -1,0 +1,15 @@
+%% Prior work -- owner: Saksham. Based on last semester's report.
+
+\section{Prior work}\label{sec:prior}
+
+\paragraph{FastGA.} FastGA~\cite{fastga} aligns genomes on one machine. It
+builds a sorted $k$-mer index, generates seeds from it, chains the seeds
+and aligns them (Section~\ref{sec:methods:fastga}). DistributedPanGA reuses
+its seed-merge and alignment code unchanged.
+
+\paragraph{Pangenome self-alignment.} Garrison~\cite{garrison} showed that
+running FastGA once on all haplotypes together is about 17$\times$ faster
+than aligning every pair separately on yeast, because one scan of one
+sorted table replaces $O(H^2 \cdot L)$ work with $O(H \cdot L)$, for $H$
+haplotypes of length $L$. We therefore keep FastGA's single sorted table,
+spread across nodes, rather than run each pair of haplotypes separately.

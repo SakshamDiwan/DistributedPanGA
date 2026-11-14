@@ -1,36 +1,21 @@
 %% Introduction -- owner: Saksham.
-%% Only claims supported by the project: the abstract, Section 2.1 and our
-%% measurements. Citations reuse those already made there.
+%% Only claims supported by the project (abstract, Section 2/3 methods,
+%% last semester's report, our measurements).
 
 \section{Introduction}\label{sec:introduction}
 
-\subsection{Motivation}\label{sec:intro:motivation}
-FastGA~\cite{fastga} aligns genome assemblies on one shared-memory node. To
-self-align a pangenome, all haplotypes go into one index and are aligned
-against themselves, so one scan of the index finds matches across every
-pair of haplotypes~\cite{fastga,garrison}. The index grows with the total
-sequence length and soon exceeds the memory of a single node.
+Aligning all haplotypes of a pangenome against each other can be done in
+one pass: FastGA~\cite{fastga} puts every haplotype's sampled $k$-mers into
+one sorted table, where matching $k$-mers sit next to each other, so a
+single scan finds matches between every pair of
+haplotypes~\cite{garrison}. The table grows with the total sequence length
+and soon outgrows the memory of one machine.
 
-\subsection{Problem}\label{sec:intro:problem}
-We distribute FastGA's self-alignment across nodes. The result is only
-useful if it reproduces FastGA's alignments exactly, so we require
-byte-identical output.
+We distribute this table, and the steps that use it, across nodes so it can
+grow past one machine. The result is only useful if it is exactly FastGA's,
+so we require byte-identical output.
 
-\subsection{Prior work}\label{sec:intro:prior}
-HySortK~\cite{hysortk} counts $k$-mers in distributed memory by sorting.
-ELBA~\cite{elba} generates contigs for long-read assembly in distributed
-memory.
-\TODO{other prior work, with verified citations}
-
-\subsection{Contributions}\label{sec:intro:contributions}
-\begin{itemize}
-\item DistributedPanGA, an MPI implementation of FastGA's self-alignment,
-  byte-identical to FastGA at every rank and node count tested.
-\item All-to-all exchanges of more than $2^{31}$ bytes per rank, and seeds
-  kept in memory from generation to alignment.
-\item An evaluation on three pangenomes of 83\,Mbp to 2.63\,Gbp: at equal
-  core counts DistributedPanGA is 1.0--1.9$\times$ faster than FastGA, and
-  on primates14.chr6 two nodes are 1.2$\times$ faster than FastGA's fastest
-  one-node run.
-\end{itemize}
-\TODO{human-scale result (Harshaan), once the runs finish}
+This paper presents DistributedPanGA, an MPI version of FastGA's
+self-alignment, and evaluates it on three pangenomes. Its output matches
+FastGA's in every configuration tested, and with the same number of cores
+it runs up to 1.9$\times$ faster.
