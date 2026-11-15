@@ -436,20 +436,21 @@ void self_adaptamer_merge(KmerStreamAdapter *kmer_table, PayloadLayout *payload_
     for (t = 0; t < NTHREADS-1; t++)
       parm[t].pend = parm[t+1].pbeg;
     parm[NTHREADS-1].pend = 0xffff;
+    free(ent);    // Current_Entry(.., NULL) allocated it
   }
 
   parm[0].kmer_table = kmer_table;
   for (i = 1; i < NTHREADS; i++)
     parm[i].kmer_table = Clone_Kmer_Stream(kmer_table);
 
-  // Per thread: one whole prefix group, plus a slot for the end-of-group
-  // marker (the "+1" here; the field's own +1 is a redundant spare slot).
-  cache = Malloc(NTHREADS*(payload_layout->largest_prefix_group_num_entries_plus_one+1)*ADAPTER_ENTRY_BYTES,"Allocating cache");
+  // Per thread: one whole prefix group, plus one slot for the end-of-group
+  // marker (an entry whose LCP byte is 11, written after the group's last entry).
+  cache = Malloc(NTHREADS*(payload_layout->largest_prefix_group_num_entries+1)*ADAPTER_ENTRY_BYTES,"Allocating cache");
   if (cache == NULL) exit (1);
 
   for (i = 0; i < NTHREADS; i++)
     { parm[i].tid   = i;
-      parm[i].cache = cache + i * (payload_layout->largest_prefix_group_num_entries_plus_one+1) * ADAPTER_ENTRY_BYTES;
+      parm[i].cache = cache + i * (payload_layout->largest_prefix_group_num_entries+1) * ADAPTER_ENTRY_BYTES;
       parm[i].nunit = N_SeedUnits + i * NUNITS;
       parm[i].cunit = C_SeedUnits + i * NUNITS;
       parm[i].nbuck = N_Units[i * NUNITS].buck;

@@ -142,10 +142,10 @@ order, in comments above each struct in `src/kmer_adapter.h`.
 - `cumulative_count_by_prefix` has `num_prefixes = 2^24` `int64` entries
   ≈ **128 MiB per rank**, allocated before records and cache. Semantics are
   cumulative **`prefix <= p`**.
-- `payload_layout.largest_prefix_group_num_entries_plus_one` = longest run of
-  one 3-byte prefix `+ 1`; it sizes the merge cache
-  (`NTHREADS*(that+1)*ADAPTER_ENTRY_BYTES`). The cache's own `+1` is the end-of-group marker
-  slot, so the field's `+1` is a redundant spare (follow-up).
+- `payload_layout.largest_prefix_group_num_entries` = longest run of one
+  3-byte prefix; it sizes the merge cache
+  (`NTHREADS*(that+1)*ADAPTER_ENTRY_BYTES`), the `+1` being the slot for the
+  end-of-group marker (an entry with LCP byte 11).
 - Stream ops are redirected by macros near the top of `src/fastga_pipeline.c`
   (`First_Kmer_Entry`, `Next_Kmer_Entry`, `GoTo_Kmer_Index`,
   `Clone_Kmer_Stream`, `Free_Kmer_Stream`, `Current_Entry`).

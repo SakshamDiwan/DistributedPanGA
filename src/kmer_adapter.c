@@ -90,7 +90,7 @@ int build_kmer_adapter(const RecordBuffer *buffer, KmerStreamAdapter *kmer_table
 
     payload_layout->payload_bytes       = position_bytes + contig_strand_bytes;
     payload_layout->contig_strand_bytes = contig_strand_bytes;
-    payload_layout->largest_prefix_group_num_entries_plus_one = max_run + 1;
+    payload_layout->largest_prefix_group_num_entries = max_run;
 
     return 0;
 }

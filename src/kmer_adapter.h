@@ -37,11 +37,10 @@ typedef struct {
 typedef struct {
     int     payload_bytes;         // payload bytes per entry: position + contig/strand (4)
     int     contig_strand_bytes;   // contig/strand bytes; strand = top bit of the last byte (1)
-    int64   largest_prefix_group_num_entries_plus_one;
-                                   // entries in the largest prefix group, + 1. Sizes the
-                                   // merge thread's cache, which adds its own +1 for the
-                                   // end-of-group marker -- so this +1 is redundant
-                                   // (follow-up: store the plain count, update test_adapter).
+    int64   largest_prefix_group_num_entries;
+                                   // entries in the largest prefix group (the longest run
+                                   // of one 24-bit prefix). Sizes the merge thread's cache,
+                                   // which adds one slot for the end-of-group marker.
 } PayloadLayout;
 
 int  build_kmer_adapter(const RecordBuffer *buffer,

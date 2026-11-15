@@ -61,8 +61,8 @@ static int cmp_rec(const void *a, const void *b)
 //
 // Every fifth record copies the previous record's 3-byte prefix, which forces
 // RUNS of equal prefixes.  Without them the per-prefix counts would be nearly
-// all 0s and 1s, largest_prefix_group_num_entries_plus_one would be trivially
-// 2, and K-01 would not distinguish a cumulative count
+// all 0s and 1s, largest_prefix_group_num_entries would be trivially 1, and
+// K-01 would not distinguish a cumulative count
 // from a per-prefix count.  The remaining random prefixes leave large GAPS,
 // which exercise the "no records with this prefix" case.
 static RefRec *build_sorted(RecordBuffer *buf, int64_t n, uint32_t seed)
@@ -102,9 +102,9 @@ static RefRec *build_sorted(RecordBuffer *buf, int64_t n, uint32_t seed)
 //
 // Also checked: cumulative_count_by_prefix is non-decreasing (a cumulative
 // count must be), its last entry equals the total record count, and
-// P.largest_prefix_group_num_entries_plus_one equals the longest run of one
-// prefix plus 1.  It matters because the merge uses it to size a cache; too
-// small and FastGA would overrun it.
+// P.largest_prefix_group_num_entries equals the longest run of one prefix.
+// It matters because the merge uses it (+1 for the end-of-group marker) to
+// size a cache; too small and FastGA would overrun it.
 static void k01_index_semantics(void)
 {
     enum { N = 4000 };
@@ -135,16 +135,16 @@ static void k01_index_semantics(void)
         }
     CHECK(1);
 
-    // largest_prefix_group_num_entries_plus_one: longest run of one 3-byte prefix, plus 1
+    // largest_prefix_group_num_entries: longest run of one 3-byte prefix
     maxrun = 0; run = 0; prev = -1;
     for (i = 0; i < N; i++) {
         int pr = prefix_of(m[i].kmer);
         if (pr == prev) run++; else { run = 1; prev = pr; }
         if (run > maxrun) maxrun = run;
     }
-    CHECK_MSG(P.largest_prefix_group_num_entries_plus_one == maxrun + 1,
-              "largest_prefix_group_num_entries_plus_one = %lld, want %lld (longest run %lld + 1)",
-              (long long) P.largest_prefix_group_num_entries_plus_one, (long long) (maxrun + 1), (long long) maxrun);
+    CHECK_MSG(P.largest_prefix_group_num_entries == maxrun,
+              "largest_prefix_group_num_entries = %lld, want %lld (longest run)",
+              (long long) P.largest_prefix_group_num_entries, (long long) maxrun);
 
     free(want); free(m);
     free_kmer_adapter(&T, &P);
