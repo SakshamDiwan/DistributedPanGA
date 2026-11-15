@@ -128,23 +128,31 @@ FastGA's `Post_List`). `self_adaptamer_merge` takes both types directly — no
 casts — so field order is not load-bearing and the compiler checks every use.
 Only the fields the pipeline or adapter reads exist.
 
-- `ibyte = 3` → prefix is k-mer bytes 0..2, held implicitly in `cpre`;
-  `hbyte = kbyte - ibyte = 7` suffix bytes are stored per entry.
-- `pbyte = hbyte + 1 + 1 + position_bytes + contig_strand_bytes` (= 13 for yeast7);
-  `tbyte = ibyte + pbyte` (= 16) is the width `Current_Entry` emits.
+Field names were renamed from FastK's; the old names are listed, in field
+order, in comments above each struct in `src/kmer_adapter.h`.
+
+- `prefix_bytes = 3` → prefix is k-mer bytes 0..2, held implicitly in
+  `current_prefix`; `entry_kmer_suffix_bytes = kmer_bytes - prefix_bytes = 7`
+  suffix bytes are stored per entry.
+- `entry_bytes = entry_kmer_suffix_bytes + 1 + 1 + position_bytes + contig_strand_bytes`
+  (= 13 for yeast7); `prefix_plus_entry_bytes = prefix_bytes + entry_bytes` (= 16)
+  is the width `Current_Entry` emits.
 - Table layout per entry: 7 suffix bytes, `0` (mask), the record's LCP byte,
   then position+contig bytes copied verbatim.
-- `index[]` has `ixlen = 2^24` `int64` entries ≈ **128 MiB per rank**, allocated
-  before records and cache. Semantics are cumulative **`prefix <= p`**.
-- `P->maxp` = longest run of one 3-byte prefix `+ 1`; it sizes the merge cache
-  (`NTHREADS*(maxp+1)*KBYTE`).
-- Stream ops are redirected by macros at `src/fastga_pipeline.c:60-66`
+- `cumulative_count_by_prefix` has `num_prefixes = 2^24` `int64` entries
+  ≈ **128 MiB per rank**, allocated before records and cache. Semantics are
+  cumulative **`prefix <= p`**.
+- `payload_layout.largest_prefix_group_num_entries_plus_one` = longest run of
+  one 3-byte prefix `+ 1`; it sizes the merge cache
+  (`NTHREADS*(that+1)*KBYTE`). The cache's own `+1` is the end-of-group marker
+  slot, so the field's `+1` is a redundant spare (follow-up).
+- Stream ops are redirected by macros near the top of `src/fastga_pipeline.c`
   (`First_Kmer_Entry`, `Next_Kmer_Entry`, `GoTo_Kmer_Index`,
   `Clone_Kmer_Stream`, `Free_Kmer_Stream`, `Current_Entry`).
-- Ownership: `free_kmer_adapter` frees `table` and `index`. Clones share both;
-  `adapter_Free_Kmer_Stream` frees only a clone's wrapper. End of stream is
-  `csuf == NULL` with `cpre == ixlen`.
-- `adapter_GoTo_Kmer_Index` is an O(ixlen) scan, tolerable only because
+- Ownership: `free_kmer_adapter` frees `entries` and `cumulative_count_by_prefix`.
+  Clones share both; `adapter_Free_Kmer_Stream` frees only a clone's wrapper.
+  End of stream is `current_entry == NULL` with `current_prefix == num_prefixes`.
+- `adapter_GoTo_Kmer_Index` is an O(num_prefixes) scan, tolerable only because
   `self_adaptamer_merge` calls it `NTHREADS-1` times; with `NTHREADS=1` it is
   never called from the split loop.
 

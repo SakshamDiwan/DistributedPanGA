@@ -128,7 +128,7 @@ typedef struct {
 } Range;
 
 typedef struct {
-    KmerStreamAdapter *T1;
+    KmerStreamAdapter *kmer_table;
     int          tid;
     int          pbeg, pend;
     uint8       *cache;
@@ -240,7 +240,7 @@ void *new_self_merge_thread(void *args)
   SeedUnit  *cunit = parm->cunit;
   int64     *nbuck = parm->nbuck;
   int64     *cbuck = parm->cbuck;
-  KmerStreamAdapter *T1 = parm->T1;
+  KmerStreamAdapter *kmer_table = parm->kmer_table;
 
   int64   tbeg, tend;
   int     cpre;
@@ -258,15 +258,15 @@ void *new_self_merge_thread(void *args)
   ctop  = cache;
   nhits = 0;
   tseed = 0;
-  kbyte = T1->pbyte;
+  kbyte = kmer_table->entry_bytes;
   kfreq = FREQ * kbyte;
   icont = 0;
-  First_Kmer_Entry(T1);
+  First_Kmer_Entry(kmer_table);
 
   if (tid != 0)
-    GoTo_Kmer_Index(T1,T1->index[(parm->pbeg<<8) | 0xff]);
-  tend = T1->index[(parm->pend<<8) | 0xff];
-  tbeg = T1->cidx;
+    GoTo_Kmer_Index(kmer_table,kmer_table->cumulative_count_by_prefix[(parm->pbeg<<8) | 0xff]);
+  tend = kmer_table->cumulative_count_by_prefix[(parm->pend<<8) | 0xff];
+  tbeg = kmer_table->current_entry_index;
 
   mlen = KMER+1;
   plen = 12;
@@ -283,7 +283,7 @@ void *new_self_merge_thread(void *args)
             { if (tbeg == tend)
                 pcnt = 100;
               else
-                pcnt = ((T1->cidx - tbeg) * 100) / (tend-tbeg);
+                pcnt = ((kmer_table->current_entry_index - tbeg) * 100) / (tend-tbeg);
               if (pcnt > qcnt)
                 { fprintf(stderr,"\r    Completed %3d%%",pcnt);
                   fflush(stderr);
@@ -291,13 +291,13 @@ void *new_self_merge_thread(void *args)
               qcnt = pcnt;
             }
 
-          if (T1->cidx >= tend)
+          if (kmer_table->current_entry_index >= tend)
             break;
 
-          cpre = T1->cpre;
-          for (cp = cache; T1->cpre == cpre; cp += kbyte)
-            { memcpy(cp,T1->csuf,kbyte);
-              Next_Kmer_Entry(T1);
+          cpre = kmer_table->current_prefix;
+          for (cp = cache; kmer_table->current_prefix == cpre; cp += kbyte)
+            { memcpy(cp,kmer_table->current_entry,kbyte);
+              Next_Kmer_Entry(kmer_table);
             }
           ctop = cp;
           ctop[LBYTE] = 11;
@@ -405,7 +405,7 @@ void *new_self_merge_thread(void *args)
 // self_adaptamer_merge
 // ============================================================================
 
-void self_adaptamer_merge(KmerStreamAdapter *T1, PostListAdapter *P1, int64 g1len)
+void self_adaptamer_merge(KmerStreamAdapter *kmer_table, PostListAdapter *payload_layout, int64 g1len)
 { SP         parm[NTHREADS];
   pthread_t  threads[NTHREADS];
   uint8     *cache;
@@ -421,16 +421,16 @@ void self_adaptamer_merge(KmerStreamAdapter *T1, PostListAdapter *P1, int64 g1le
     int    t;
     int64  p;
 
-    ent = Current_Entry(T1,NULL);
+    ent = Current_Entry(kmer_table,NULL);
     parm[0].pbeg = 0;
     for (t = 1; t < NTHREADS; t++)
-      { p = (T1->nels * t) / NTHREADS;
-        GoTo_Kmer_Index(T1,p);
-        if (p >= T1->nels)
+      { p = (kmer_table->num_entries * t) / NTHREADS;
+        GoTo_Kmer_Index(kmer_table,p);
+        if (p >= kmer_table->num_entries)
           parm[t].pbeg = 0xffff;
         else
-          { ent = Current_Entry(T1,ent);
-            parm[t].pbeg = (T1->cpre >> 8);
+          { ent = Current_Entry(kmer_table,ent);
+            parm[t].pbeg = (kmer_table->current_prefix >> 8);
           }
       }
     for (t = 0; t < NTHREADS-1; t++)
@@ -438,16 +438,18 @@ void self_adaptamer_merge(KmerStreamAdapter *T1, PostListAdapter *P1, int64 g1le
     parm[NTHREADS-1].pend = 0xffff;
   }
 
-  parm[0].T1 = T1;
+  parm[0].kmer_table = kmer_table;
   for (i = 1; i < NTHREADS; i++)
-    parm[i].T1 = Clone_Kmer_Stream(T1);
+    parm[i].kmer_table = Clone_Kmer_Stream(kmer_table);
 
-  cache = Malloc(NTHREADS*(P1->maxp+1)*KBYTE,"Allocating cache");
+  // Per thread: one whole prefix group, plus a slot for the end-of-group
+  // marker (the "+1" here; the field's own +1 is a redundant spare slot).
+  cache = Malloc(NTHREADS*(payload_layout->largest_prefix_group_num_entries_plus_one+1)*KBYTE,"Allocating cache");
   if (cache == NULL) exit (1);
 
   for (i = 0; i < NTHREADS; i++)
     { parm[i].tid   = i;
-      parm[i].cache = cache + i * (P1->maxp+1) * KBYTE;
+      parm[i].cache = cache + i * (payload_layout->largest_prefix_group_num_entries_plus_one+1) * KBYTE;
       parm[i].nunit = N_SeedUnits + i * NUNITS;
       parm[i].cunit = C_SeedUnits + i * NUNITS;
       parm[i].nbuck = N_Units[i * NUNITS].buck;
@@ -469,8 +471,8 @@ void self_adaptamer_merge(KmerStreamAdapter *T1, PostListAdapter *P1, int64 g1le
 
   free(cache);
   for (i = NTHREADS-1; i >= 1; i--)
-    Free_Kmer_Stream(parm[i].T1);
-  Free_Kmer_Stream(T1);
+    Free_Kmer_Stream(parm[i].kmer_table);
+  Free_Kmer_Stream(kmer_table);
 
   nhits = tseed = 0;
   for (i = 0; i < NTHREADS; i++)

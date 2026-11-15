@@ -361,20 +361,20 @@ int main(int argc, char *argv[])
     // self_adaptamer_merge + redistribute_seeds_mem(N+C) + count_buck.
     t_stage_start = MPI_Wtime();
 
-    KmerStreamAdapter T1;
-    PostListAdapter   P1;
-    memset(&T1, 0, sizeof(T1));
-    memset(&P1, 0, sizeof(P1));
-    if (build_kmer_adapter(&recv, &T1, &P1) < 0) {
+    KmerStreamAdapter kmer_table;
+    PostListAdapter   payload_layout;
+    memset(&kmer_table, 0, sizeof(kmer_table));
+    memset(&payload_layout, 0, sizeof(payload_layout));
+    if (build_kmer_adapter(&recv, &kmer_table, &payload_layout) < 0) {
         fprintf(stderr, "rank %d: build_kmer_adapter failed\n", my_rank);
         MPI_Abort(MPI_COMM_WORLD, 1);
     }
     fprintf(stderr, "[merge] rank %d: adapter %lld entries, pbyte=%d\n",
-            my_rank, (long long) T1.nels, T1.pbyte);
+            my_rank, (long long) kmer_table.num_entries, kmer_table.entry_bytes);
     double t_adapter = MPI_Wtime() - t_stage_start;
     int64 slice_records = recv.count;
     int64 record_bytes  = recv.count * (int64) recv.sizing.record_size;
-    int64 adapter_bytes = T1.nels * (int64) T1.pbyte + (int64) T1.ixlen * (int64) sizeof(int64);
+    int64 adapter_bytes = kmer_table.num_entries * (int64) kmer_table.entry_bytes + (int64) kmer_table.num_prefixes * (int64) sizeof(int64);
 
     // The adapter holds its own copy of every record (build_kmer_adapter
     // copies, it does not alias), and nothing after this point reads recv.
@@ -382,16 +382,16 @@ int main(int argc, char *argv[])
     mem_stage_end(MEM_ADAPTER);
 
     // Set FastGA externs.
-    KMER   = T1.kmer;
-    IBYTE  = P1.pbyte;
-    ICONT  = P1.cbyte;
+    KMER   = kmer_table.kmer_length_bases;
+    IBYTE  = payload_layout.payload_bytes;
+    ICONT  = payload_layout.contig_strand_bytes;
     IPOST  = IBYTE - ICONT;
     ISIGN  = IBYTE - 1;
     JBYTE  = IBYTE;
     JCONT  = ICONT;
     JPOST  = IPOST;
-    KBYTE  = T1.pbyte;
-    CBYTE  = T1.hbyte;
+    KBYTE  = kmer_table.entry_bytes;
+    CBYTE  = kmer_table.entry_kmer_suffix_bytes;
     LBYTE  = CBYTE + 1;
     PAYOFF = LBYTE + 1;
     NCONTS = gdb->ncontig;
@@ -490,12 +490,12 @@ int main(int argc, char *argv[])
     // record count proxy here for the verbose output ratio. Pass seqtot
     // since it's only used for a logging division.
     double t0 = now_s();
-    self_adaptamer_merge(&T1, &P1, gdb->seqtot);
+    self_adaptamer_merge(&kmer_table, &payload_layout, gdb->seqtot);
     double t_merge_core = now_s() - t0;
 
     // Seeds are now in SeedUnits; pair_sort_search and everything after it
     // read only those buffers and the GDB, never the k-mer adapter.
-    free_kmer_adapter(&T1, &P1);
+    free_kmer_adapter(&kmer_table, &payload_layout);
     mem_stage_end(MEM_MERGE);
 
     // Trim slack from doubling before exchange.
