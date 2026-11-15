@@ -21,7 +21,6 @@
 #include <string.h>
 #include <strings.h>
 #include <stdint.h>
-#include <limits.h>
 #include <time.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -68,9 +67,8 @@ double ALIGN_RATE  = 0.3;
 int    IBYTE, JBYTE;
 int    ICONT, JCONT;
 int    IPOST, JPOST;
-int    ISIGN, JSIGN;
+int    ISIGN;
 int    KBYTE, CBYTE, LBYTE, PAYOFF;
-int    ESHIFT;
 
 int    NCONTS;
 int64  AMXPOS, BMXPOS, MAXDAG;
@@ -81,7 +79,6 @@ int    *IDBsplit = NULL;
 int    *Perm1    = NULL;
 int    *Perm2    = NULL;
 char   *SORT_PATH = NULL;
-char   *PAIR_NAME = NULL;
 char   *ALGN_UNIQ = NULL;
 char   *ALGN_PAIR = NULL;
 
@@ -393,12 +390,10 @@ int main(int argc, char *argv[])
     JBYTE  = IBYTE;
     JCONT  = ICONT;
     JPOST  = IPOST;
-    JSIGN  = ISIGN;
     KBYTE  = T1.pbyte;
     CBYTE  = T1.hbyte;
     LBYTE  = CBYTE + 1;
     PAYOFF = LBYTE + 1;
-    ESHIFT = 8 * IPOST;
     NCONTS = gdb->ncontig;
 
     AMXPOS = 0;
@@ -454,10 +449,8 @@ int main(int argc, char *argv[])
     SORT_PATH = make_temp_dir_for_rank(my_rank);
     fprintf(stderr, "[merge] rank %d: scratch %s\n", my_rank, SORT_PATH);
 
-    PAIR_NAME = Malloc(256, "pair_name");
     ALGN_UNIQ = Malloc(256, "algn_uniq");
     ALGN_PAIR = Malloc(256, "algn_pair");
-    sprintf(PAIR_NAME, "_pair.%d", getpid());
     sprintf(ALGN_UNIQ, "_uniq.%d", getpid());
     sprintf(ALGN_PAIR, "_algn.%d", getpid());
 
@@ -484,8 +477,6 @@ int main(int argc, char *argv[])
         for (int j = 0; j < NUNITS; j++) {
             N_Units[k].buck = unit_bucks + (2ll * i) * NCONTS;
             C_Units[k].buck = unit_bucks + (2ll * i + 1) * NCONTS;
-            N_Units[k].inum = k;
-            C_Units[k].inum = k;
             seed_unit_init(&N_SeedUnits[k], k);
             seed_unit_init(&C_SeedUnits[k], k);
             k++;
@@ -531,10 +522,6 @@ int main(int argc, char *argv[])
     double t_redist_c = now_s() - t0;
     fprintf(stderr, "[merge] rank %d: received N=%lld C=%lld bytes\n",
             my_rank, (long long) n_recv, (long long) c_recv);
-
-    // After exchange we have ONE slot per type. NUNITS for downstream code
-    // is now 1 (matching pair_sort_search's NPARTS=1 expectation).
-    NUNITS = 1;
 
     // Recount per-A-contig seeds from received buffers; on 1 rank the merge
     // counts are already correct (all seeds stayed local).
@@ -609,7 +596,6 @@ int main(int argc, char *argv[])
     // Per-rank merge/alignment breakdown (PR 1). Seeds are 1+IBYTE+JBYTE bytes.
     {
         const PairSearchStats *ps = &Pair_Search_Stats;
-        int seed_bytes = 1 + IBYTE + JBYTE;
         fprintf(stderr,
                 "[pr1] rank %d: slice_records=%lld adapter_s=%.6f merge_core_s=%.6f "
                 "redist_n_s=%.6f redist_c_s=%.6f recompute_s=%.6f "
@@ -684,9 +670,6 @@ int main(int argc, char *argv[])
         }
     }
 
-cleanup:
-    free_kmer_adapter(&T1, &P1);
-    record_buffer_free(&recv);
     contig_assignment_free(&assign);
     free(RankForPair);
     Close_GDB(gdb);
@@ -700,7 +683,6 @@ cleanup:
                 my_rank, SORT_PATH);
 
     free(SORT_PATH);
-    free(PAIR_NAME);
     free(ALGN_UNIQ);
     free(ALGN_PAIR);
     free(Perm1);

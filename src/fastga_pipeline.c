@@ -37,9 +37,6 @@ extern int rmsd_sort(uint8 *array, int64 nelem, int rsize, int ksize,
 #define EXO_SIZE  (OVL_SIZE - PTR_SIZE)
 #endif
 
-#undef  CALL_ALIGNER
-#define CALL_ALIGNER
-
 #undef  BOX_ELIM
 #define BOX_ELIM
 
@@ -49,9 +46,6 @@ extern int rmsd_sort(uint8 *array, int64 nelem, int rsize, int ksize,
 #define BUCK_WIDTH   64
 #define BUCK_ANTI    128
 #define BOX_FUZZ     10
-
-#define POST_BUF_LEN  0x1000
-#define POST_BUF_MASK 0x0fff
 
 #define MEMORY 4000
 
@@ -96,9 +90,8 @@ extern char  *Prog_Name;
 extern int    IBYTE, JBYTE;
 extern int    ICONT, JCONT;
 extern int    IPOST, JPOST;
-extern int    ISIGN, JSIGN;
+extern int    ISIGN;
 extern int    KBYTE, CBYTE, LBYTE, PAYOFF;
-extern int    ESHIFT;
 
 extern int    NCONTS;
 extern int64  AMXPOS, BMXPOS, MAXDAG;
@@ -108,7 +101,6 @@ extern int   *Select;
 extern int   *IDBsplit;
 extern int   *Perm1, *Perm2;
 extern char  *SORT_PATH;
-extern char  *PAIR_NAME;
 extern char  *ALGN_UNIQ;
 extern char  *ALGN_PAIR;
 
@@ -138,10 +130,6 @@ typedef struct {
 
 typedef struct {
     Kmer_Stream *T1;
-    Kmer_Stream *T2;
-    Post_List   *P1;
-    Post_List   *P2;
-    int          flip;
     int          tid;
     int          pbeg, pend;
     uint8       *cache;
@@ -158,12 +146,8 @@ typedef struct {
     int64     seed_len;
     int       swide;
     int       comp;
-    int       inum;
-    GDB      *gdb1;
-    GDB      *gdb2;
     int64    *buck;
     uint8    *sarr;
-    Range    *range;
 } RP;
 
 typedef struct {
@@ -456,11 +440,8 @@ void self_adaptamer_merge(Kmer_Stream *T1, Post_List *P1, int64 g1len)
   }
 
   parm[0].T1 = T1;
-  parm[0].P1 = P1;
   for (i = 1; i < NTHREADS; i++)
-    { parm[i].T1 = Clone_Kmer_Stream(T1);
-      parm[i].P1 = P1;
-    }
+    parm[i].T1 = Clone_Kmer_Stream(T1);
 
   cache = Malloc(NTHREADS*(P1->maxp+1)*KBYTE,"Allocating cache");
   if (cache == NULL) exit (1);
@@ -512,7 +493,7 @@ void self_adaptamer_merge(Kmer_Stream *T1, Post_List *P1, int64 g1len)
 static int entwine(Path *jpath, uint8 *jtrace, Path *kpath, uint8 *ktrace, int *where, int show)
 { int ac, b2, y2, yp, ae;
   int i, j, k;
-  int num, den, min;
+  int min;
 
   (void) show;
   *where = -1;
@@ -533,9 +514,7 @@ static int entwine(Path *jpath, uint8 *jtrace, Path *kpath, uint8 *ktrace, int *
   else
     yp = y2 + (jtrace[j] * (kpath->abpos - ac)) / TSPACE;
 
-  num = b2-yp;
-  den = 1;
-  min = num;
+  min = b2-yp;
 
   ae = jpath->aepos;
   if (ae > kpath->aepos) ae = kpath->aepos;
@@ -546,8 +525,6 @@ static int entwine(Path *jpath, uint8 *jtrace, Path *kpath, uint8 *ktrace, int *
       j += 2;
       k += 2;
       i = b2-y2;
-      num += i;
-      den += 1;
       if (min < 0 && min < i)
         { if (i >= 0) min = 0; else min = i; }
       else if (min > 0 && min > i)
@@ -572,14 +549,11 @@ static int entwine(Path *jpath, uint8 *jtrace, Path *kpath, uint8 *ktrace, int *
     }
 
   i = b2-y2;
-  num += i;
-  den += 1;
   if (min < 0 && min < i)
     { if (i >= 0) min = 0; else min = i; }
   else if (min > 0 && min > i)
     { if (i <= 0) min = 0; else min = i; }
 
-  (void) den;
   return (min);
 }
 
@@ -837,7 +811,6 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
     { void    *oblock;
       Overlap **perm;
       int      j, k, where, dist;
-      Path     tpath;
 
       oblock = Malloc(nmem,"Allocating overlap block");
       perm   = Malloc(nlas*sizeof(Overlap *),"Allocating permutation array");
@@ -1492,9 +1465,6 @@ void pair_sort_search(GDB *gdb1, GDB *gdb2)
   for (p = 0; p < NTHREADS; p++)
     { rarm[p].swide  = swide;
       rarm[p].sarr   = sarray;
-      rarm[p].range  = range+p;
-      rarm[p].gdb1   = gdb1;
-      rarm[p].gdb2   = gdb2;
 
       tarm[p].tid    = p;
       tarm[p].swide  = swide;
@@ -1545,7 +1515,6 @@ void pair_sort_search(GDB *gdb1, GDB *gdb2)
           rarm[p].seed_len  = (u == 0) ? Recv_N_Len  : Recv_C_Len;
           rarm[p].buck = nu[p].buck;
           rarm[p].comp = u;
-          rarm[p].inum = nu[p].inum;
         }
       for (p = 1; p < NTHREADS; p++)
         pthread_create(threads+p,NULL,reimport_thread,rarm+p);

@@ -29,15 +29,11 @@ typedef struct {
     int     clone;
 } Post_List;
 
-// Per-thread / per-part IO buffer for per-contig seed counts (buck) and
-// alignment file descriptors. Allocated by pga-mpi-merge.c.
+// Per-thread / per-part per-contig seed counts (buck). Allocated by
+// pga-mpi-merge.c. (FastGA's file-buffer fields were unused here: seeds live
+// in SeedUnit buffers instead.)
 typedef struct {
-    uint8  *bufr;
-    uint8  *btop;
-    uint8  *bend;
     int64  *buck;
-    int     file;
-    int     inum;
 } IOBuffer;
 
 

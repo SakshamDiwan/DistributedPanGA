@@ -87,7 +87,6 @@ static void scan_contig(GDB *gdb, int r, char *SEQ_buf, EmitFn emit, void *user)
     int len, beg, end;
     int i, n;
     uint8_t *seq, *sn;
-    int ne[8];
     int nq[8], cq[8];
     int mzr[8];
     int min4, pos4;
@@ -121,7 +120,7 @@ static void scan_contig(GDB *gdb, int r, char *SEQ_buf, EmitFn emit, void *user)
     for (i = 0; i < 4; i++)
     {
         int c;
-        ne[i+4] = n = ((n << 2) | sn[i]) & 0xff;
+        n = ((n << 2) | sn[i]) & 0xff;
         c = Comp[n];
         nq[i] = TMap[n];
         cq[i] = TMap[c];
@@ -134,7 +133,7 @@ static void scan_contig(GDB *gdb, int r, char *SEQ_buf, EmitFn emit, void *user)
         int nh, ch, c;
         int mn, mc, mz;
 
-        ne[i] = n = ((n << 2) | sn[i]) & 0xff;
+        n = ((n << 2) | sn[i]) & 0xff;
         c  = Comp[n];
         nh = TMap[n];
         ch = TMap[c];
@@ -159,14 +158,12 @@ static void scan_contig(GDB *gdb, int r, char *SEQ_buf, EmitFn emit, void *user)
         end -= SMER;
         for (i = beg; i <= end; i++)
         {
-            int iq, jq;
+            int jq;
             int nh, ch;
             int mn, mc, mz;
-            int j, w, c, p;
+            int j, c;
 
-            iq = i & 0x7;
-            w = ne[iq];
-            ne[iq] = n = ((n << 2) | sn[i]) & 0xff;
+            n = ((n << 2) | sn[i]) & 0xff;
             c  = Comp[n];
             nh = TMap[n];
             ch = TMap[c];
@@ -201,9 +198,6 @@ static void scan_contig(GDB *gdb, int r, char *SEQ_buf, EmitFn emit, void *user)
             // mz == min4 falls through (the "Hit RE" tie branch)
 
             j = i - SOFF;
-            p = ne[(i+4) & 0x7];
-            (void) w;  // w isn't needed here; the bucket is recomputed in Phase 2 from packed bytes
-            (void) c;  // same reason
 
             // Pack from the window when the k-mer's bases are all in it;
             // otherwise (forward k-mer running past a non-final window's
