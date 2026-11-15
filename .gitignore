@@ -54,3 +54,11 @@ tests/fixtures/generated/
 *.swp
 *.swo
 .DS_Store
+
+# Data
+tests/fixtures/primates4
+tests/fixtures/primates14
+tests/fixtures/yeast
+
+# Report specific jobs
+jobs/report
