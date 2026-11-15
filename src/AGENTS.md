@@ -8,12 +8,15 @@ Layering, innermost first: `constants.h` → `record`/`tables`/`pack`/`work_spli
 `fastga_pipeline` → drivers (`pga-*.c`).
 
 - One driver per phase; `pga-mpi-merge.c` is the final one and defines the
-  FastGA externs (`NTHREADS`, `FREQ`, `IBYTE`, `NCONTS`, `RankForPair`, …) that
+  FastGA externs (`NTHREADS`, `FREQ`, `A_PAYLOAD_BYTES`, `NCONTS`, `RankForPair`, …) that
   `fastga_pipeline.c` declares `extern`. Adding an extern means defining it
   in `pga-mpi-merge.c`.
-- `fastga_pipeline.c` is lifted FastGA code, kept close to upstream on purpose.
-  Match its brace and indentation style there rather than the surrounding code,
-  and keep edits minimal so it stays diffable against FastGA.
+- `fastga_pipeline.c` is lifted FastGA code. Keep its **behaviour** identical to
+  upstream; its **names** are being made descriptive on purpose (e.g. `IBYTE` →
+  `A_PAYLOAD_BYTES`). Pure renames must compile to identical machine code
+  (compare `.text`/`.rodata`/`.data` of the two builds) and never touch log
+  strings. Match its brace and indentation style there rather than the
+  surrounding code.
 - `kmer_adapter.h` structs are used directly by `fastga_pipeline.c` (the
   `First_Kmer_Entry`-style macros call the `adapter_*` functions, no casts), so
   the compiler checks every field use. Never reintroduce a cast to

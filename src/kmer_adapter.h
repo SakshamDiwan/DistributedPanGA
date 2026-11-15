@@ -31,10 +31,9 @@ typedef struct {
     int     is_clone;                   // per-thread copy sharing entries/counts (free only the wrapper)
 } KmerStreamAdapter;
 
-// PostListAdapter — the payload description FastGA's merge needs (field names
-// follow FastGA's Post_List; our own type, never cast).
-
-// FastGA names: pbyte, cbyte, maxp (in field order).
+// PayloadLayout — the payload description FastGA's merge needs (FastGA called
+// this Post_List; our own type, never cast). FastGA's field names: pbyte,
+// cbyte, maxp (in field order).
 typedef struct {
     int     payload_bytes;         // payload bytes per entry: position + contig/strand (4)
     int     contig_strand_bytes;   // contig/strand bytes; strand = top bit of the last byte (1)
@@ -43,13 +42,13 @@ typedef struct {
                                    // merge thread's cache, which adds its own +1 for the
                                    // end-of-group marker -- so this +1 is redundant
                                    // (follow-up: store the plain count, update test_adapter).
-} PostListAdapter;
+} PayloadLayout;
 
 int  build_kmer_adapter(const RecordBuffer *buffer,
                         KmerStreamAdapter *kmer_table,
-                        PostListAdapter *payload_layout);
+                        PayloadLayout *payload_layout);
 
-void free_kmer_adapter(KmerStreamAdapter *kmer_table, PostListAdapter *payload_layout);
+void free_kmer_adapter(KmerStreamAdapter *kmer_table, PayloadLayout *payload_layout);
 
 void adapter_First_Kmer_Entry(KmerStreamAdapter *kmer_table);
 void adapter_Next_Kmer_Entry(KmerStreamAdapter *kmer_table);

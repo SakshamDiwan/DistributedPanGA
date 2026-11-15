@@ -3,7 +3,7 @@
 #include <string.h>
 #include "kmer_adapter.h"
 
-int build_kmer_adapter(const RecordBuffer *buffer, KmerStreamAdapter *kmer_table, PostListAdapter *payload_layout)
+int build_kmer_adapter(const RecordBuffer *buffer, KmerStreamAdapter *kmer_table, PayloadLayout *payload_layout)
 {
     int64 num_records = buffer->count;
     int record_size = buffer->sizing.record_size;
@@ -95,7 +95,7 @@ int build_kmer_adapter(const RecordBuffer *buffer, KmerStreamAdapter *kmer_table
     return 0;
 }
 
-void free_kmer_adapter(KmerStreamAdapter *kmer_table, PostListAdapter *payload_layout)
+void free_kmer_adapter(KmerStreamAdapter *kmer_table, PayloadLayout *payload_layout)
 {
     (void) payload_layout;
     if (kmer_table->entries) { free(kmer_table->entries); kmer_table->entries = NULL; }

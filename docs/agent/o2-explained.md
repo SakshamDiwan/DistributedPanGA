@@ -13,7 +13,7 @@ The pipeline moves data between ranks twice:
 | Exchange | What moves | Record size | Caller |
 |---|---|---|---|
 | Distributed sort (stage 2) | k-mer records, routed by bucket owner | `rsize` (18 bytes on human chr6) | `run_stage2` in `dsort.c` |
-| Seed redistribution | seeds, routed by owner of the contig pair | `1 + IBYTE + JBYTE` | `redistribute_seeds_mem` in `pga-mpi-merge.c` |
+| Seed redistribution | seeds, routed by owner of the contig pair | `1 + A_PAYLOAD_BYTES + B_PAYLOAD_BYTES` | `redistribute_seeds_mem` in `pga-mpi-merge.c` |
 
 Both are *personalized all-to-all*: rank `r` has a different block of bytes
 for every peer `p`. MPI's call for that is

@@ -38,7 +38,7 @@ pairs. Final executable: `pga-mpi-merge`. Inspected source commit: `ce64406`.
 - Contig-pair assignment: length-product weights, descending order, `(i,j)`
   tie-break, least-load heap with rank tie-break. `int8_t` storage caps world
   size at 127; the map is `ncontig²` bytes.
-- Adapter structs (`KmerStreamAdapter`, `PostListAdapter`) are our own types,
+- Adapter structs (`KmerStreamAdapter`, `PayloadLayout`) are our own types,
   used directly by the pipeline — no casts to FastK/FastGA structs, so field
   order is free. Cumulative index uses `prefix <= p` semantics; clones share
   storage and only the wrapper is freed.

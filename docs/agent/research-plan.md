@@ -34,7 +34,7 @@ Constraints any replacement must satisfy:
   occurrences to form pairs, and `recompute_buck` needs per-contig counts.
 - Preserve **LCP**: the downstream adapter copies each record's LCP byte into
   the table (`src/kmer_adapter.c:68`) and `new_self_merge_thread` reads it
-  (`suf1[CBYTE]`, `p[-2]`) to bound adaptamer groups. Dropping or changing LCP
+  (`suf1[ENTRY_MASK_BYTE_OFFSET]`, `p[-2]`) to bound adaptamer groups. Dropping or changing LCP
   semantics silently changes seeding.
 - Preserve both emissions per position `j` (forward stores `j`, RC stores
   `j+TMER`) and the exact coordinate convention.

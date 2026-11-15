@@ -109,7 +109,7 @@ static void k01_index_semantics(void)
 {
     enum { N = 4000 };
     RecordBuffer buf;
-    KmerStreamAdapter T; PostListAdapter P;
+    KmerStreamAdapter T; PayloadLayout P;
     RefRec  *m = build_sorted(&buf, N, 24601u);
     int64_t *want;
     int64_t  i, cum, run, maxrun;
@@ -169,7 +169,7 @@ static void k01_index_semantics(void)
 static void k02_widths(void)
 {
     RecordBuffer buf;
-    KmerStreamAdapter T; PostListAdapter P;
+    KmerStreamAdapter T; PayloadLayout P;
     RefRec *m = build_sorted(&buf, 64, 99u);
 
     memset(&T, 0, sizeof T); memset(&P, 0, sizeof P);
@@ -205,7 +205,7 @@ static void k02_widths(void)
 static void k03_entry_layout(void)
 {
     RecordBuffer buf;
-    KmerStreamAdapter T; PostListAdapter P;
+    KmerStreamAdapter T; PayloadLayout P;
     uint8_t k[KBYTES];
     int     i;
 
@@ -247,7 +247,7 @@ static void k04_traversal_roundtrip(void)
 {
     enum { N = 1000 };
     RecordBuffer buf;
-    KmerStreamAdapter T; PostListAdapter P;
+    KmerStreamAdapter T; PayloadLayout P;
     RefRec  *m = build_sorted(&buf, N, 555u);
     uint8_t *ent;
     int64_t  i;
@@ -296,7 +296,7 @@ static void k05_clone_sharing(void)
 {
     enum { N = 200 };
     RecordBuffer buf;
-    KmerStreamAdapter T, *c; PostListAdapter P;
+    KmerStreamAdapter T, *c; PayloadLayout P;
     RefRec *m = build_sorted(&buf, N, 31u);
     int64_t parent_cidx;
 

@@ -5,7 +5,7 @@
 #include "GDB.h"
 #include "libfastk.h"
 #include "seed_buffer.h"
-#include "kmer_adapter.h"   // KmerStreamAdapter, PostListAdapter
+#include "kmer_adapter.h"   // KmerStreamAdapter, PayloadLayout
 
 // Per-thread / per-part per-contig seed counts (buck). Allocated by
 // pga-mpi-merge.c. (FastGA's file-buffer fields were unused here: seeds live
@@ -15,7 +15,7 @@ typedef struct {
 } IOBuffer;
 
 
-void self_adaptamer_merge(KmerStreamAdapter *T1, PostListAdapter *P1, int64 g1len);
+void self_adaptamer_merge(KmerStreamAdapter *kmer_table, PayloadLayout *payload_layout, int64 g1len);
 void pair_sort_search(GDB *gdb1, GDB *gdb2);
 
 // --- Instrumentation (PR 1) -------------------------------------------------

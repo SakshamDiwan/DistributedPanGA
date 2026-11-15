@@ -123,7 +123,7 @@ Callers matter: `pga-sort` calls `sort_records` **only**, so its byte 0 is raw
 ## Stage 3: FastK/FastGA adapter (`src/kmer_adapter.c`)
 
 `build_kmer_adapter(buffer, T, P)` builds a `KmerStreamAdapter` (field names
-borrowed from FastK's `Kmer_Stream`) and a `PostListAdapter` (names from
+borrowed from FastK's `Kmer_Stream`) and a `PayloadLayout` (names from
 FastGA's `Post_List`). `self_adaptamer_merge` takes both types directly — no
 casts — so field order is not load-bearing and the compiler checks every use.
 Only the fields the pipeline or adapter reads exist.
@@ -144,7 +144,7 @@ order, in comments above each struct in `src/kmer_adapter.h`.
   cumulative **`prefix <= p`**.
 - `payload_layout.largest_prefix_group_num_entries_plus_one` = longest run of
   one 3-byte prefix `+ 1`; it sizes the merge cache
-  (`NTHREADS*(that+1)*KBYTE`). The cache's own `+1` is the end-of-group marker
+  (`NTHREADS*(that+1)*ADAPTER_ENTRY_BYTES`). The cache's own `+1` is the end-of-group marker
   slot, so the field's `+1` is a redundant spare (follow-up).
 - Stream ops are redirected by macros near the top of `src/fastga_pipeline.c`
   (`First_Kmer_Entry`, `Next_Kmer_Entry`, `GoTo_Kmer_Index`,
@@ -182,9 +182,11 @@ ranks. All three pairs tie on weight, so `(i,j)` order is
 
 - **extract** — `record_buffer_init` + `extract_to_records`.
 - **sort** — `run_stage2`.
-- **merge** — `build_kmer_adapter`, FastGA extern setup (`IBYTE`, `ICONT`,
-  `IPOST`, `ISIGN`, `KBYTE`, `CBYTE`, `LBYTE`, `PAYOFF`, `ESHIFT`, `NCONTS`,
-  `AMXPOS`, `BMXPOS`, `MAXDAG`, `DBYTE`, `Perm1`, `IDBsplit`, `Select`),
+- **merge** — `build_kmer_adapter`, FastGA extern setup (the payload widths
+  `A_/B_PAYLOAD_BYTES`, `A_/B_POSITION_BYTES`, `A_/B_CONTIG_STRAND_BYTES`,
+  `PAYLOAD_STRAND_BYTE_OFFSET`; the entry layout `ADAPTER_ENTRY_BYTES`,
+  `ENTRY_MASK_BYTE_OFFSET`, `ENTRY_LCP_BYTE_OFFSET`, `ENTRY_PAYLOAD_OFFSET`;
+  `NCONTS`, `AMXPOS`, `BMXPOS`, `MAXDAG`, `DBYTE`, `Perm1`, `IDBsplit`, `Select`),
   `contig_assignment_build`, `RankForPair`, per-rank scratch dir, `IOBuffer`
   allocation, `self_adaptamer_merge`, both `redistribute_seeds` calls, and both
   `recompute_buck` calls.
@@ -206,8 +208,8 @@ if (RankForPair != NULL)                     /* distributed mode */
 ou = (isign == jsign) ? nunit + idest : cunit + idest;
 ```
 
-`jcont` is masked with `((1 << (8*JCONT - 1)) - 1)` to strip the strand bit.
-Each seed is `1 + IBYTE + JBYTE` bytes: `plen`, then `pay1`, then `p`.
+`jcont` is masked with `((1 << (8*B_CONTIG_STRAND_BYTES - 1)) - 1)` to strip the strand bit.
+Each seed is `1 + A_PAYLOAD_BYTES + B_PAYLOAD_BYTES` bytes: `plen`, then `pay1`, then `p`.
 Frequency cutoff is `kfreq = FREQ * kbyte`. Buffers flush to
 `$SORT_PATH/$PAIR_NAME.<k>.{N,C}` when `btop >= bend`.
 
@@ -228,7 +230,7 @@ Per seed type (`N` = same-strand, `C` = cross-strand):
 
 `recompute_buck` then rescans the combined file to rebuild per-A-contig seed
 counts (`unit->buck[icont]`), because redistribution invalidates the counts the
-merge wrote. It reads the contig field at offset `1 + IPOST` and strips the
+merge wrote. It reads the contig field at offset `1 + A_POSITION_BYTES` and strips the
 strand bit.
 
 ### Alignment and output

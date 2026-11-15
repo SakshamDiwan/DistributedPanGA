@@ -88,11 +88,11 @@ extern int    ALIGN_MIN;
 extern double ALIGN_RATE;
 extern char  *Prog_Name;
 
-extern int    IBYTE, JBYTE;
-extern int    ICONT, JCONT;
-extern int    IPOST, JPOST;
-extern int    ISIGN;
-extern int    KBYTE, CBYTE, LBYTE, PAYOFF;
+extern int    A_PAYLOAD_BYTES, B_PAYLOAD_BYTES;
+extern int    A_CONTIG_STRAND_BYTES, B_CONTIG_STRAND_BYTES;
+extern int    A_POSITION_BYTES, B_POSITION_BYTES;
+extern int    PAYLOAD_STRAND_BYTE_OFFSET;
+extern int    ADAPTER_ENTRY_BYTES, ENTRY_MASK_BYTE_OFFSET, ENTRY_LCP_BYTE_OFFSET, ENTRY_PAYLOAD_OFFSET;
 
 extern int    NCONTS;
 extern int64  AMXPOS, BMXPOS, MAXDAG;
@@ -300,31 +300,31 @@ void *new_self_merge_thread(void *args)
               Next_Kmer_Entry(kmer_table);
             }
           ctop = cp;
-          ctop[LBYTE] = 11;
+          ctop[ENTRY_LCP_BYTE_OFFSET] = 11;
 
           plen = 12;
           vlcp[plen] = rcur = rend = suf1 = cache;
           rend += kbyte;
-          plen = rend[LBYTE];
-          for (i = rcur[LBYTE]; i <= plen; i++)
+          plen = rend[ENTRY_LCP_BYTE_OFFSET];
+          for (i = rcur[ENTRY_LCP_BYTE_OFFSET]; i <= plen; i++)
             vlcp[i] = rcur;
           eorun = (plen <= 11);
         }
       else
         { int i;
           if (eorun)
-            plen = suf1[LBYTE];
+            plen = suf1[ENTRY_LCP_BYTE_OFFSET];
           rend += kbyte;
-          if (rend[LBYTE] < plen)
+          if (rend[ENTRY_LCP_BYTE_OFFSET] < plen)
             eorun = 1;
-          else if (rend[LBYTE] == plen)
+          else if (rend[ENTRY_LCP_BYTE_OFFSET] == plen)
             eorun = 0;
           else
             { rcur = rend-kbyte;
-              for (i = plen+1; i <= rend[LBYTE]; i++)
+              for (i = plen+1; i <= rend[ENTRY_LCP_BYTE_OFFSET]; i++)
                 vlcp[i] = rcur;
               eorun = 0;
-              plen = rend[LBYTE];
+              plen = rend[ENTRY_LCP_BYTE_OFFSET];
             }
         }
 
@@ -337,12 +337,12 @@ void *new_self_merge_thread(void *args)
               if (hgh > top)
                 break;
             }
-          while (hgh[LBYTE] >= plen);
+          while (hgh[ENTRY_LCP_BYTE_OFFSET] >= plen);
         }
 
       if (hgh >= top) continue;
       if (SOFT_MASK) mlen = plen;
-      if (suf1[CBYTE] >= mlen) continue;
+      if (suf1[ENTRY_MASK_BYTE_OFFSET] >= mlen) continue;
 
       { int       idest, isign, jsign;
         SeedUnit *ou;
@@ -350,24 +350,24 @@ void *new_self_merge_thread(void *args)
         uint8    *p, *pay1;
         int64     jcont;
         uint8    *jptr = (uint8 *) (&jcont);
-        int64     jcont_mask = ((int64) 1 << (8 * JCONT - 1)) - 1;
+        int64     jcont_mask = ((int64) 1 << (8 * B_CONTIG_STRAND_BYTES - 1)) - 1;
 
-        pay1 = suf1+PAYOFF;
-        isign = (pay1[ISIGN] & 0x80);
-        if (isign) pay1[ISIGN] &= 0x7f;
-        memcpy(iptr,pay1+IPOST,ICONT);
+        pay1 = suf1+ENTRY_PAYLOAD_OFFSET;
+        isign = (pay1[PAYLOAD_STRAND_BYTE_OFFSET] & 0x80);
+        if (isign) pay1[PAYLOAD_STRAND_BYTE_OFFSET] &= 0x7f;
+        memcpy(iptr,pay1+A_POSITION_BYTES,A_CONTIG_STRAND_BYTES);
         idest = Select[icont];   // fallback for non-distributed mode
 
-        for (p = low+PAYOFF; p < hgh; p += kbyte)
+        for (p = low+ENTRY_PAYLOAD_OFFSET; p < hgh; p += kbyte)
           { if (p == pay1) continue;
             if (p[-2] >= mlen) continue;
-            jsign = (p[ISIGN] & 0x80);
+            jsign = (p[PAYLOAD_STRAND_BYTE_OFFSET] & 0x80);
 
             // Phase 4b: route by RankForPair[icont, jcont] if available.
             // Otherwise keep original Select[icont] routing.
             if (RankForPair != NULL) {
               jcont = 0;
-              memcpy(jptr, p+JPOST, JCONT);
+              memcpy(jptr, p+B_POSITION_BYTES, B_CONTIG_STRAND_BYTES);
               jcont &= jcont_mask;   // strip jsign bit
               idest = RankForPair[icont * (int64) NCONTS + jcont];
             }
@@ -380,19 +380,19 @@ void *new_self_merge_thread(void *args)
               { ou = cunit + idest;
                 bk = cbuck;
               }
-            seed_unit_ensure(ou, 1 + IBYTE + JBYTE);
+            seed_unit_ensure(ou, 1 + A_PAYLOAD_BYTES + B_PAYLOAD_BYTES);
             { uint8 *dst = ou->data + ou->len;
               *dst++ = plen;
-              memcpy(dst,pay1,IBYTE);
-              dst += IBYTE;
-              memcpy(dst,p,JBYTE);
+              memcpy(dst,pay1,A_PAYLOAD_BYTES);
+              dst += A_PAYLOAD_BYTES;
+              memcpy(dst,p,B_PAYLOAD_BYTES);
             }
-            ou->len += 1 + IBYTE + JBYTE;
+            ou->len += 1 + A_PAYLOAD_BYTES + B_PAYLOAD_BYTES;
             nhits += 1;
             tseed += plen;
             bk[icont] += 1;
           }
-        if (isign) pay1[ISIGN] |= 0x80;
+        if (isign) pay1[PAYLOAD_STRAND_BYTE_OFFSET] |= 0x80;
       }
     }
 
@@ -405,7 +405,7 @@ void *new_self_merge_thread(void *args)
 // self_adaptamer_merge
 // ============================================================================
 
-void self_adaptamer_merge(KmerStreamAdapter *kmer_table, PostListAdapter *payload_layout, int64 g1len)
+void self_adaptamer_merge(KmerStreamAdapter *kmer_table, PayloadLayout *payload_layout, int64 g1len)
 { SP         parm[NTHREADS];
   pthread_t  threads[NTHREADS];
   uint8     *cache;
@@ -444,12 +444,12 @@ void self_adaptamer_merge(KmerStreamAdapter *kmer_table, PostListAdapter *payloa
 
   // Per thread: one whole prefix group, plus a slot for the end-of-group
   // marker (the "+1" here; the field's own +1 is a redundant spare slot).
-  cache = Malloc(NTHREADS*(payload_layout->largest_prefix_group_num_entries_plus_one+1)*KBYTE,"Allocating cache");
+  cache = Malloc(NTHREADS*(payload_layout->largest_prefix_group_num_entries_plus_one+1)*ADAPTER_ENTRY_BYTES,"Allocating cache");
   if (cache == NULL) exit (1);
 
   for (i = 0; i < NTHREADS; i++)
     { parm[i].tid   = i;
-      parm[i].cache = cache + i * (payload_layout->largest_prefix_group_num_entries_plus_one+1) * KBYTE;
+      parm[i].cache = cache + i * (payload_layout->largest_prefix_group_num_entries_plus_one+1) * ADAPTER_ENTRY_BYTES;
       parm[i].nunit = N_SeedUnits + i * NUNITS;
       parm[i].cunit = C_SeedUnits + i * NUNITS;
       parm[i].nbuck = N_Units[i * NUNITS].buck;
@@ -1039,7 +1039,7 @@ void *search_seeds(void *args)
   int      end    = range->end;
   GDB     *gdb1   = &(parm->gdb1);
   GDB     *gdb2   = &(parm->gdb2);
-  int      foffs  = swide-JCONT;
+  int      foffs  = swide-B_CONTIG_STRAND_BYTES;
   FILE    *ofile  = parm->ofile;
   FILE    *tfile  = parm->tfile;
 
@@ -1082,12 +1082,12 @@ void *search_seeds(void *args)
   for (icrnt = beg; icrnt < end; icrnt++)
     { e = x + panel[icrnt];
       if (e > x)
-        { memcpy(_jcrnt,x+foffs,JCONT);
+        { memcpy(_jcrnt,x+foffs,B_CONTIG_STRAND_BYTES);
           b = x;
           for (x += swide; x < e; x += swide)
-            if (memcmp(_jcrnt,x+foffs,JCONT))
+            if (memcmp(_jcrnt,x+foffs,B_CONTIG_STRAND_BYTES))
               { timed_align_contigs(b,x,swide,icrnt,(int) jcrnt,pair,comp);
-                memcpy(_jcrnt,x+foffs,JCONT);
+                memcpy(_jcrnt,x+foffs,B_CONTIG_STRAND_BYTES);
                 b = x;
               }
           timed_align_contigs(b,x,swide,icrnt,jcrnt,pair,comp);
@@ -1131,7 +1131,7 @@ void *reimport_thread(void *args)
   int64  diag, flag, mask;
   uint8 *bend, *b;
 
-  iunit = IBYTE + JBYTE + 1;
+  iunit = A_PAYLOAD_BYTES + B_PAYLOAD_BYTES + 1;
 
   b    = parm->seed_data;
   bend = b + parm->seed_len;
@@ -1142,15 +1142,15 @@ void *reimport_thread(void *args)
   icont = 0;
   jcont = 0;
 
-  flag = (0x1ll << (8*JCONT-1));
+  flag = (0x1ll << (8*B_CONTIG_STRAND_BYTES-1));
   mask = flag-1;
 
   while (b + iunit <= bend)
     { lcp = *b++;
-      memcpy(_ipost,b,IPOST); b += IPOST;
-      memcpy(_icont,b,ICONT); b += ICONT;
-      memcpy(_jpost,b,JPOST); b += JPOST;
-      memcpy(_jcont,b,JCONT); b += JCONT;
+      memcpy(_ipost,b,A_POSITION_BYTES); b += A_POSITION_BYTES;
+      memcpy(_icont,b,A_CONTIG_STRAND_BYTES); b += A_CONTIG_STRAND_BYTES;
+      memcpy(_jpost,b,B_POSITION_BYTES); b += B_POSITION_BYTES;
+      memcpy(_jcont,b,B_CONTIG_STRAND_BYTES); b += B_CONTIG_STRAND_BYTES;
       jcont &= mask;
 
       x = sarr + swide * buck[icont]++;
@@ -1167,7 +1167,7 @@ void *reimport_thread(void *args)
       *x++ = diag-(band<<BUCK_SHIFT);
       memcpy(x,_anti,DBYTE); x += DBYTE;
       memcpy(x,_band,DBYTE); x += DBYTE;
-      memcpy(x,_jcont,JCONT); x += JCONT;
+      memcpy(x,_jcont,B_CONTIG_STRAND_BYTES); x += B_CONTIG_STRAND_BYTES;
     }
   return (NULL);
 }
@@ -1456,7 +1456,7 @@ void pair_sort_search(GDB *gdb1, GDB *gdb2)
           }
       }
 
-    swide  = 2*DBYTE + JCONT + 2;
+    swide  = 2*DBYTE + B_CONTIG_STRAND_BYTES + 2;
     sarray = Malloc((nelmax+1)*swide,"Sort Array");
     Pair_Search_Stats.sarray_bytes = (nelmax+1)*swide;
     panel  = Malloc(NCONTS*sizeof(int64),"Bucket Array");

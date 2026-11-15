@@ -64,11 +64,26 @@ int    CHAIN_MIN   = 170;
 int    ALIGN_MIN   = 100;
 double ALIGN_RATE  = 0.3;
 
-int    IBYTE, JBYTE;
-int    ICONT, JCONT;
-int    IPOST, JPOST;
-int    ISIGN;
-int    KBYTE, CBYTE, LBYTE, PAYOFF;
+// Byte layouts the merge works on (values for yeast7; set in main below).
+//
+//   adapter entry (13):  [ k-mer suffix (7) ][ mask ][ LCP ][ payload (4) ]
+//                         0                   7       8      9
+//   payload (4):         [ position (3, little-endian) ][ contig|strand (1) ]
+//   seed (9):            [ shared bases (1) ][ A payload (4) ][ B payload (4) ]
+//
+// A / B are the two k-mers of a seed pair (FastGA's I / J); in self-alignment
+// their widths are equal. The strand is the top bit of the payload's last byte.
+int    A_PAYLOAD_BYTES,                  // payload bytes, A side (4)
+       B_PAYLOAD_BYTES;                  // payload bytes, B side (4)
+int    A_CONTIG_STRAND_BYTES,            // contig|strand field bytes, A side (1)
+       B_CONTIG_STRAND_BYTES;            // contig|strand field bytes, B side (1)
+int    A_POSITION_BYTES,                 // position bytes = offset of the contig field, A (3)
+       B_POSITION_BYTES;                 // same, B side (3)
+int    PAYLOAD_STRAND_BYTE_OFFSET;       // payload byte whose top bit is the strand (3)
+int    ADAPTER_ENTRY_BYTES,              // bytes per adapter entry (13)
+       ENTRY_MASK_BYTE_OFFSET,           // offset of the mask byte, always 0 (7)
+       ENTRY_LCP_BYTE_OFFSET,            // offset of the LCP byte (8)
+       ENTRY_PAYLOAD_OFFSET;             // offset of the payload (9)
 
 int    NCONTS;
 int64  AMXPOS, BMXPOS, MAXDAG;
@@ -266,12 +281,12 @@ static uint8 *redistribute_seeds_mem(SeedUnit *units, int world_size,
 // Count per-A-contig seeds in a received buffer (replaces recompute_buck).
 static void count_buck(int64 *buck, const uint8 *buf, int64 total, int seed_bytes)
 {
-    int   icont_off = 1 + IPOST;
-    int64 mask      = ((int64) 1 << (8 * ICONT - 1)) - 1;
+    int   icont_off = 1 + A_POSITION_BYTES;
+    int64 mask      = ((int64) 1 << (8 * A_CONTIG_STRAND_BYTES - 1)) - 1;
     bzero(buck, sizeof(int64) * NCONTS);
     for (int64 i = 0; i < total; i += seed_bytes) {
         int64 icont = 0;
-        memcpy(&icont, buf + i + icont_off, ICONT);
+        memcpy(&icont, buf + i + icont_off, A_CONTIG_STRAND_BYTES);
         icont &= mask;
         buck[icont]++;
     }
@@ -362,7 +377,7 @@ int main(int argc, char *argv[])
     t_stage_start = MPI_Wtime();
 
     KmerStreamAdapter kmer_table;
-    PostListAdapter   payload_layout;
+    PayloadLayout   payload_layout;
     memset(&kmer_table, 0, sizeof(kmer_table));
     memset(&payload_layout, 0, sizeof(payload_layout));
     if (build_kmer_adapter(&recv, &kmer_table, &payload_layout) < 0) {
@@ -382,18 +397,18 @@ int main(int argc, char *argv[])
     mem_stage_end(MEM_ADAPTER);
 
     // Set FastGA externs.
-    KMER   = kmer_table.kmer_length_bases;
-    IBYTE  = payload_layout.payload_bytes;
-    ICONT  = payload_layout.contig_strand_bytes;
-    IPOST  = IBYTE - ICONT;
-    ISIGN  = IBYTE - 1;
-    JBYTE  = IBYTE;
-    JCONT  = ICONT;
-    JPOST  = IPOST;
-    KBYTE  = kmer_table.entry_bytes;
-    CBYTE  = kmer_table.entry_kmer_suffix_bytes;
-    LBYTE  = CBYTE + 1;
-    PAYOFF = LBYTE + 1;
+    KMER                       = kmer_table.kmer_length_bases;
+    A_PAYLOAD_BYTES            = payload_layout.payload_bytes;
+    A_CONTIG_STRAND_BYTES      = payload_layout.contig_strand_bytes;
+    A_POSITION_BYTES           = A_PAYLOAD_BYTES - A_CONTIG_STRAND_BYTES;  // position comes first
+    PAYLOAD_STRAND_BYTE_OFFSET = A_PAYLOAD_BYTES - 1;                      // last payload byte
+    B_PAYLOAD_BYTES            = A_PAYLOAD_BYTES;                          // self-alignment: B = A
+    B_CONTIG_STRAND_BYTES      = A_CONTIG_STRAND_BYTES;
+    B_POSITION_BYTES           = A_POSITION_BYTES;
+    ADAPTER_ENTRY_BYTES        = kmer_table.entry_bytes;
+    ENTRY_MASK_BYTE_OFFSET     = kmer_table.entry_kmer_suffix_bytes;       // right after the suffix
+    ENTRY_LCP_BYTE_OFFSET      = ENTRY_MASK_BYTE_OFFSET + 1;
+    ENTRY_PAYLOAD_OFFSET       = ENTRY_LCP_BYTE_OFFSET + 1;
     NCONTS = gdb->ncontig;
 
     AMXPOS = 0;
@@ -507,7 +522,7 @@ int main(int argc, char *argv[])
     if (my_rank == ROOT)
         fprintf(stderr, "[merge] redistributing seeds via MPI_Alltoallv...\n");
 
-    int seed_bytes = 1 + IBYTE + JBYTE;
+    int seed_bytes = 1 + A_PAYLOAD_BYTES + B_PAYLOAD_BYTES;
     int64 n_sent, c_sent, n_recv, c_recv;
     XchgStats n_xst, c_xst;
     t0 = now_s();
@@ -593,7 +608,7 @@ int main(int argc, char *argv[])
     t_alignments = MPI_Wtime() - t_stage_start;
     mem_stage_end(MEM_CONVERT);
 
-    // Per-rank merge/alignment breakdown (PR 1). Seeds are 1+IBYTE+JBYTE bytes.
+    // Per-rank merge/alignment breakdown (PR 1). Seeds are 1+A_PAYLOAD_BYTES+B_PAYLOAD_BYTES bytes.
     {
         const PairSearchStats *ps = &Pair_Search_Stats;
         fprintf(stderr,
