@@ -53,13 +53,14 @@ extern int rmsd_sort(uint8 *array, int64 nelem, int rsize, int ksize,
 #define OWNS_MEMORY  0x8
 #define RESET_FLAGS  0x3
 
-// Redirect Kmer_Stream operations to our adapter
-#define First_Kmer_Entry(T)    adapter_First_Kmer_Entry((KmerStreamAdapter *)(T))
-#define Next_Kmer_Entry(T)     adapter_Next_Kmer_Entry((KmerStreamAdapter *)(T))
-#define GoTo_Kmer_Index(T, i)  adapter_GoTo_Kmer_Index((KmerStreamAdapter *)(T), (i))
-#define Clone_Kmer_Stream(T)   ((Kmer_Stream *)adapter_Clone_Kmer_Stream((KmerStreamAdapter *)(T)))
-#define Free_Kmer_Stream(T)    adapter_Free_Kmer_Stream((KmerStreamAdapter *)(T))
-#define Current_Entry(T, ent)  adapter_Current_Entry((KmerStreamAdapter *)(T), (ent))
+// FastK's Kmer_Stream operations, served by our adapter. T is a
+// KmerStreamAdapter * throughout (no casts), so the compiler checks every use.
+#define First_Kmer_Entry(T)    adapter_First_Kmer_Entry(T)
+#define Next_Kmer_Entry(T)     adapter_Next_Kmer_Entry(T)
+#define GoTo_Kmer_Index(T, i)  adapter_GoTo_Kmer_Index((T), (i))
+#define Clone_Kmer_Stream(T)   adapter_Clone_Kmer_Stream(T)
+#define Free_Kmer_Stream(T)    adapter_Free_Kmer_Stream(T)
+#define Current_Entry(T, ent)  adapter_Current_Entry((T), (ent))
 
 // ============================================================================
 // Externs (set by pga-mpi-merge.c)
@@ -129,7 +130,7 @@ typedef struct {
 // Post_List typedef lives in fastga_pipeline.h.
 
 typedef struct {
-    Kmer_Stream *T1;
+    KmerStreamAdapter *T1;
     int          tid;
     int          pbeg, pend;
     uint8       *cache;
@@ -241,7 +242,7 @@ void *new_self_merge_thread(void *args)
   SeedUnit  *cunit = parm->cunit;
   int64     *nbuck = parm->nbuck;
   int64     *cbuck = parm->cbuck;
-  Kmer_Stream *T1  = parm->T1;
+  KmerStreamAdapter *T1 = parm->T1;
 
   int64   tbeg, tend;
   int     cpre;
@@ -406,7 +407,7 @@ void *new_self_merge_thread(void *args)
 // self_adaptamer_merge
 // ============================================================================
 
-void self_adaptamer_merge(Kmer_Stream *T1, Post_List *P1, int64 g1len)
+void self_adaptamer_merge(KmerStreamAdapter *T1, PostListAdapter *P1, int64 g1len)
 { SP         parm[NTHREADS];
   pthread_t  threads[NTHREADS];
   uint8     *cache;

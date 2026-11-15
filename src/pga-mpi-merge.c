@@ -490,7 +490,7 @@ int main(int argc, char *argv[])
     // record count proxy here for the verbose output ratio. Pass seqtot
     // since it's only used for a logging division.
     double t0 = now_s();
-    self_adaptamer_merge((Kmer_Stream *)&T1, (Post_List *)&P1, gdb->seqtot);
+    self_adaptamer_merge(&T1, &P1, gdb->seqtot);
     double t_merge_core = now_s() - t0;
 
     // Seeds are now in SeedUnits; pair_sort_search and everything after it

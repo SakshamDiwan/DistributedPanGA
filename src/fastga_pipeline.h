@@ -5,6 +5,7 @@
 #include "GDB.h"
 #include "libfastk.h"
 #include "seed_buffer.h"
+#include "kmer_adapter.h"   // KmerStreamAdapter, PostListAdapter
 
 // Post_List must match FastGA.c's definition (field order matters)
 typedef struct {
@@ -37,7 +38,7 @@ typedef struct {
 } IOBuffer;
 
 
-void self_adaptamer_merge(Kmer_Stream *T1, Post_List *P1, int64 g1len);
+void self_adaptamer_merge(KmerStreamAdapter *T1, PostListAdapter *P1, int64 g1len);
 void pair_sort_search(GDB *gdb1, GDB *gdb2);
 
 // --- Instrumentation (PR 1) -------------------------------------------------

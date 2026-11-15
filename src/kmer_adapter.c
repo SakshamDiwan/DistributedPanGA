@@ -3,14 +3,12 @@
 #include <string.h>
 #include "kmer_adapter.h"
 
-int build_kmer_adapter(const RecordBuffer *buf,
-                       KmerStreamAdapter *T,
-                       PostListAdapter *P)
+int build_kmer_adapter(const RecordBuffer *buffer, KmerStreamAdapter *T, PostListAdapter *P)
 {
-    int64 nels       = buf->count;
-    int   rec_size   = buf->sizing.record_size;
-    int   position_bytes = buf->sizing.position_bytes;
-    int   contig_strand_bytes = buf->sizing.contig_strand_bytes;
+    int64 num_records = buffer->count;
+    int record_size = buffer->sizing.record_size;
+    int position_bytes = buffer->sizing.position_bytes;
+    int contig_strand_bytes = buffer->sizing.contig_strand_bytes;
 
     T->kmer   = 40;
     T->minval = 1;
@@ -19,7 +17,7 @@ int build_kmer_adapter(const RecordBuffer *buf,
     T->hbyte  = T->kbyte - T->ibyte;                              // 7
     T->pbyte  = T->hbyte + 1 + 1 + position_bytes + contig_strand_bytes;       // 13
     T->tbyte  = T->ibyte + T->pbyte;                              // 16, used by Current_Entry
-    T->nels   = nels;
+    T->nels   = num_records;
     T->ixlen  = 1 << (8 * T->ibyte);
     T->shift  = 0;
     T->inver  = NULL;
@@ -30,7 +28,7 @@ int build_kmer_adapter(const RecordBuffer *buf,
     T->name   = NULL;
     T->neps   = NULL;
 
-    T->table = (uint8 *) malloc(nels * T->pbyte);
+    T->table = (uint8 *) malloc(num_records * T->pbyte);
     if (T->table == NULL) {
         fprintf(stderr, "build_kmer_adapter: out of memory for table\n");
         return -1;
@@ -47,8 +45,8 @@ int build_kmer_adapter(const RecordBuffer *buf,
     int64 max_run = 0, current_run = 0;
     int   prev_prefix = -1;
 
-    for (int64 i = 0; i < nels; i++) {
-        const uint8 *src = buf->data + i * rec_size;
+    for (int64 i = 0; i < num_records; i++) {
+        const uint8 *src = buffer->data + i * record_size;
 
         int prefix = (src[KMER_OFFSET] << 16) |
                      (src[KMER_OFFSET + 1] << 8) |
@@ -74,8 +72,8 @@ int build_kmer_adapter(const RecordBuffer *buf,
     // "≤ p" cumulative: index[p] = number of records with prefix ≤ p.
     // Matches libfastk.c semantics (see First_Kmer_Entry, Next_Kmer_Entry).
     memset(T->index, 0, T->ixlen * sizeof(int64));
-    for (int64 i = 0; i < nels; i++) {
-        const uint8 *src = buf->data + i * rec_size;
+    for (int64 i = 0; i < num_records; i++) {
+        const uint8 *src = buffer->data + i * record_size;
         int prefix = (src[KMER_OFFSET] << 16) |
                     (src[KMER_OFFSET + 1] << 8) |
                     src[KMER_OFFSET + 2];
@@ -95,10 +93,10 @@ int build_kmer_adapter(const RecordBuffer *buf,
     while (T->cpre < T->ixlen && T->index[T->cpre] <= 0)
         T->cpre++;
     T->clone = 0;
-    T->ctop = T->table + nels * T->pbyte;
+    T->ctop = T->table + num_records * T->pbyte;
     P->pbyte = position_bytes + contig_strand_bytes;
     P->cbyte = contig_strand_bytes;
-    P->nels  = nels;
+    P->nels  = num_records;
     P->maxp  = max_run + 1;
     P->freq  = 0;
     P->nctg  = 0;
