@@ -11,7 +11,6 @@ int build_kmer_adapter(const RecordBuffer *buffer, KmerStreamAdapter *T, PostLis
     int contig_strand_bytes = buffer->sizing.contig_strand_bytes;
 
     T->kmer   = 40;
-    T->minval = 1;
     T->ibyte  = 3;
     T->kbyte  = 10;
     T->hbyte  = T->kbyte - T->ibyte;                              // 7
@@ -19,14 +18,6 @@ int build_kmer_adapter(const RecordBuffer *buffer, KmerStreamAdapter *T, PostLis
     T->tbyte  = T->ibyte + T->pbyte;                              // 16, used by Current_Entry
     T->nels   = num_records;
     T->ixlen  = 1 << (8 * T->ibyte);
-    T->shift  = 0;
-    T->inver  = NULL;
-    T->copn   = -1;
-    T->part   = 0;
-    T->nthr   = 1;
-    T->nlen   = 0;
-    T->name   = NULL;
-    T->neps   = NULL;
 
     T->table = (uint8 *) malloc(num_records * T->pbyte);
     if (T->table == NULL) {
@@ -96,11 +87,7 @@ int build_kmer_adapter(const RecordBuffer *buffer, KmerStreamAdapter *T, PostLis
     T->ctop = T->table + num_records * T->pbyte;
     P->pbyte = position_bytes + contig_strand_bytes;
     P->cbyte = contig_strand_bytes;
-    P->nels  = num_records;
     P->maxp  = max_run + 1;
-    P->freq  = 0;
-    P->nctg  = 0;
-    P->perm  = NULL;
 
     return 0;
 }
@@ -110,7 +97,6 @@ void free_kmer_adapter(KmerStreamAdapter *T, PostListAdapter *P)
     (void) P;
     if (T->table) { free(T->table); T->table = NULL; }
     if (T->index) { free(T->index); T->index = NULL; }
-    // T->inver is NULL — kept for layout compat with Kmer_Stream
 }
 
 void adapter_First_Kmer_Entry(KmerStreamAdapter *T)

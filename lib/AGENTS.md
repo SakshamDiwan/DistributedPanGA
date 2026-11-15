@@ -6,9 +6,8 @@ here so every target compiles them directly (there is no library archive).
 
 Treat these as read-only. Our code is written to match them, not the reverse:
 
-- `src/kmer_adapter.h` structs mirror `Kmer_Stream` (`libfastk.h`) and are cast
-  to it; `src/fastga_pipeline.h`'s `Post_List` mirrors FastGA's. Any field
-  reordering here breaks those casts silently.
+- `src/kmer_adapter.h` borrows `Kmer_Stream`'s field *names* (`libfastk.h`) but
+  is not cast to it, so `libfastk.h` changes cannot break the adapter silently.
 - `msd_sort` (`MSDsort.c:404`) writes a sentinel at `array[nelem*rsize]`, which
   is why record buffers allocate `+1`, and its internal byte 0 encoding is
   **not** semantic LCP — see `docs/agent/architecture.md`. `rmsd_sort`

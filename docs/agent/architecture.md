@@ -122,10 +122,11 @@ Callers matter: `pga-sort` calls `sort_records` **only**, so its byte 0 is raw
 
 ## Stage 3: FastK/FastGA adapter (`src/kmer_adapter.c`)
 
-`build_kmer_adapter(buf, T, P)` builds a `KmerStreamAdapter` whose field order
-mirrors `Kmer_Stream` (`lib/libfastk.h`) and a `PostListAdapter` mirroring
-`Post_List` (`src/fastga_pipeline.h`). Both are **cast** to the FastGA types at
-the call site, so field order and widths are load-bearing.
+`build_kmer_adapter(buffer, T, P)` builds a `KmerStreamAdapter` (field names
+borrowed from FastK's `Kmer_Stream`) and a `PostListAdapter` (names from
+FastGA's `Post_List`). `self_adaptamer_merge` takes both types directly — no
+casts — so field order is not load-bearing and the compiler checks every use.
+Only the fields the pipeline or adapter reads exist.
 
 - `ibyte = 3` → prefix is k-mer bytes 0..2, held implicitly in `cpre`;
   `hbyte = kbyte - ibyte = 7` suffix bytes are stored per entry.

@@ -7,29 +7,6 @@
 #include "seed_buffer.h"
 #include "kmer_adapter.h"   // KmerStreamAdapter, PostListAdapter
 
-// Post_List must match FastGA.c's definition (field order matters)
-typedef struct {
-    int     pbyte;
-    int     cbyte;
-    int64   nels;
-    int64   maxp;
-    int     freq;
-    int     nctg;
-    int    *perm;
-    int64   cidx;
-    uint8  *cache;
-    uint8  *cptr;
-    int64  *index;
-    int     copn;
-    int     part;
-    int     nthr;
-    int     nlen;
-    char   *name;
-    uint8  *ctop;
-    int64  *neps;
-    int     clone;
-} Post_List;
-
 // Per-thread / per-part per-contig seed counts (buck). Allocated by
 // pga-mpi-merge.c. (FastGA's file-buffer fields were unused here: seeds live
 // in SeedUnit buffers instead.)

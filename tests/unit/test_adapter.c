@@ -5,12 +5,12 @@
 // WHAT THE ADAPTER IS FOR.  The downstream merge and alignment code is lifted
 // from FastGA and expects to read k-mers through FastK's Kmer_Stream interface.
 // Our pipeline instead produces a flat array of our own records.  Rather than
-// rewrite FastGA, src/kmer_adapter.c builds a structure whose FIELD LAYOUT
-// MIRRORS Kmer_Stream, and the call sites simply cast to it.
+// rewrite FastGA, src/kmer_adapter.c builds a KmerStreamAdapter that serves
+// the same stream operations (the pipeline uses it directly, no casts).
 //
-// That cast is why these tests matter: nothing in the compiler checks the
-// mirror.  Reorder a field, change a width, or get the index semantics subtly
-// wrong, and FastGA reads plausible garbage instead of failing loudly.
+// The compiler checks the struct's fields, but not their MEANING: get the
+// index semantics, a width, or the entry layout subtly wrong, and FastGA reads
+// plausible garbage instead of failing loudly.  That is what these tests check.
 //
 // HOW THE STREAM IS ADDRESSED.  A 40-mer is 10 bytes.  The adapter splits it:
 //   - the first ibyte = 3 bytes are the PREFIX.  These are not stored per

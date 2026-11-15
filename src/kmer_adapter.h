@@ -6,49 +6,36 @@
 #include "record.h"     // for RecordSizing, offsets
 #include "constants.h"  // for KBYTES
 
-// KmerStreamAdapter — wraps our RecordBuffer to look like Kmer_Stream.
+// KmerStreamAdapter — our sorted RecordBuffer as a FastK-style k-mer table,
+// walked by the merge stage through the adapter_* functions below. Field names
+// follow FastK's Kmer_Stream, but this is our own type: nothing casts it to
+// Kmer_Stream, so field order and widths are free to change.
 
 typedef struct {
-    // ---- Mirror of Kmer_Stream (libfastk.h lines 65..93) ----
-    int     kmer;
-    int     minval;
-    int64   nels;
-    int64   cidx;
-    uint8  *csuf;
-    int     cpre;
-    int     ibyte;
-    int     kbyte;
-    int     tbyte;
-    int     hbyte;
-    int     pbyte;
-    int     ixlen;
-    int     shift;
-    uint8  *table;
-    int64  *index;
-    int    *inver;
-    int     copn;       // unused by adapter, kept for layout compat
-    int     part;       // unused
-    int     nthr;       // unused
-    int     nlen;       // unused
-    char   *name;       // unused
-    uint8  *ctop;
-    int64  *neps;       // unused
-    int     clone;
-    // ---- end mirror ----
+    int     kmer;       // k-mer length in bases (40)
+    int64   nels;       // number of table entries (= records in this rank's slice)
+    int64   cidx;       // cursor: index of the current entry
+    uint8  *csuf;       // cursor: pointer to the current entry in table
+    int     cpre;       // cursor: 24-bit prefix (first ibyte k-mer bytes) of the current entry
+    int     ibyte;      // k-mer bytes turned into the prefix, not stored per entry (3)
+    int     kbyte;      // bytes of the whole k-mer (10)
+    int     tbyte;      // prefix + entry bytes, as Current_Entry returns it (ibyte + pbyte)
+    int     hbyte;      // k-mer bytes stored per entry (kbyte - ibyte)
+    int     pbyte;      // bytes per table entry: hbyte + mask + LCP + payload
+    int     ixlen;      // number of possible prefixes = length of index (2^(8*ibyte))
+    uint8  *table;      // nels entries of pbyte bytes, sorted by k-mer
+    int64  *index;      // index[p] = number of entries with prefix <= p
+    uint8  *ctop;       // one past the last entry of table
+    int     clone;      // 1 if a per-thread copy sharing table/index (free only the wrapper)
 } KmerStreamAdapter;
 
-// PostListAdapter — wraps post info to look like Post_List.
-// Fields must match Post_List layout (first N fields in order).
+// PostListAdapter — the payload description FastGA's merge needs (field names
+// follow FastGA's Post_List; our own type, never cast).
 
 typedef struct {
-    int     pbyte;         // = PostBytes + ContBytes
-    int     cbyte;         // = ContBytes
-    int64   nels;          // total number of positions
-    int64   maxp;          // max posts per k-mer prefix (for cache sizing)
-    int     freq;          // frequency cutoff (not used in self-merge)
-    int     nctg;          // number of contigs
-    int    *perm;          // contig permutation
-    // We don't need the rest (index, cache, file handles, etc.)
+    int     pbyte;         // payload bytes per entry: position + contig/strand
+    int     cbyte;         // contig/strand bytes (strand = top bit of the last byte)
+    int64   maxp;          // largest prefix group + 1 (sizes the merge thread's cache)
 } PostListAdapter;
 
 int  build_kmer_adapter(const RecordBuffer *buf,

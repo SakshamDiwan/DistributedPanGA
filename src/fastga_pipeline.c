@@ -127,8 +127,6 @@ typedef struct {
     int64 off;
 } Range;
 
-// Post_List typedef lives in fastga_pipeline.h.
-
 typedef struct {
     KmerStreamAdapter *T1;
     int          tid;

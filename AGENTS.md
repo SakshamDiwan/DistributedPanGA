@@ -38,9 +38,10 @@ pairs. Final executable: `pga-mpi-merge`. Inspected source commit: `ce64406`.
 - Contig-pair assignment: length-product weights, descending order, `(i,j)`
   tie-break, least-load heap with rank tie-break. `int8_t` storage caps world
   size at 127; the map is `ncontig²` bytes.
-- Adapter structs mirror FastK/FastGA layouts and are **cast** to those
-  interfaces — field order is load-bearing. Cumulative index uses `prefix <= p`
-  semantics; clones share storage and only the wrapper is freed.
+- Adapter structs (`KmerStreamAdapter`, `PostListAdapter`) are our own types,
+  used directly by the pipeline — no casts to FastK/FastGA structs, so field
+  order is free. Cumulative index uses `prefix <= p` semantics; clones share
+  storage and only the wrapper is freed.
 - `ALNtoPAF` runs under a time limit (`PGA_ALNTOPAF_TIMEOUT`, default 600 s,
   0 = none) via `run_with_timeout` (`src/run_cmd.c`). Its stderr goes to
   `out.rank<r>.alntopaf.err`. A failure or timeout on any rank makes

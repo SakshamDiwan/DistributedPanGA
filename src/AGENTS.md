@@ -14,8 +14,10 @@ Layering, innermost first: `constants.h` → `record`/`tables`/`pack`/`work_spli
 - `fastga_pipeline.c` is lifted FastGA code, kept close to upstream on purpose.
   Match its brace and indentation style there rather than the surrounding code,
   and keep edits minimal so it stays diffable against FastGA.
-- `kmer_adapter.h` structs are **cast** to `Kmer_Stream` / `Post_List`. Field
-  order and widths are load-bearing — never reorder, insert, or change a type.
+- `kmer_adapter.h` structs are used directly by `fastga_pipeline.c` (the
+  `First_Kmer_Entry`-style macros call the `adapter_*` functions, no casts), so
+  the compiler checks every field use. Never reintroduce a cast to
+  `Kmer_Stream` / `Post_List`: that would make field order load-bearing again.
 - `#include "constants.h"` defines `KMER 40`, which collides with the runtime
   `int KMER` in the merge drivers; `pga-mpi-merge.c` `#undef KMER` after its
   includes. Preserve that if you add includes.
