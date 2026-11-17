@@ -8,7 +8,8 @@ pre-alignment features such as seed counts only partly predict alignment
 time in our measurements. Replaying measured task times under a dynamic
 schedule (self-alignments first, by contig length) shortens the slowest
 rank in simulation only; it is not implemented, and it conflicts with
-sending seeds to their owner before alignment. No schedule can finish
+sending seeds to their owner before alignment and with reproducing FastGA's
+order of self pairs (Section~\ref{sec:impl:order}). No schedule can finish
 before the largest single task (Section~\ref{sec:disc:small}); that
 requires splitting self-alignments across ranks while reproducing FastGA's alignments exactly, an open problem.
 

@@ -1,0 +1,55 @@
+\subsection{Reproducing FastGA's order of pairs}\label{sec:impl:order}
+
+\paragraph{Why order matters.} FastGA's alignment loop works through a
+contig pair's chains and, after each call to the aligner, continues from
+the end position the aligner reached. When a contig is aligned with itself
+on the same strand and a chain lies on the main diagonal, the loop skips
+the aligner, which would only align the sequence with itself, and resets
+the start and end in the first sequence but not in the second. It then
+continues from the old end in the second sequence, which belongs to the
+previous aligner call, usually for a different contig pair. If that value
+lies ahead of the loop's position, the loop jumps to it and can skip real
+alignments. Our code copies the loop, so the result for such a pair
+depended on which pair a rank aligned just before it, and so on the rank
+count (Section~\ref{sec:results:human}).
+
+\paragraph{FastGA's order.} FastGA numbers the contigs by length, longest
+first, and stores that order in its index. It cuts the contigs, in this
+order, into at most $t$ parts of about equal length, and each part into at
+most $t$ consecutive ranges of about equal seed count, one per thread. A
+thread aligns its range anchor by anchor, and each anchor's partners in the
+same order. Each range starts with no previous aligner call. The value a
+self pair $(c,c)$ starts from is therefore the end position left by the
+last aligner call before it in its range: usually that of the pair with
+$c$'s nearest earlier partner that reached the aligner, otherwise the last
+call for an earlier contig in the range.
+
+\paragraph{Supplying the value.} A pair of two different contigs never
+reads a leftover value, so its final end position is the same on any rank.
+Each rank reads FastGA's contig order from the index, recomputes FastGA's
+parts and ranges for the thread count the reference used, and learns from
+one reduction which pairs have seeds. It then aligns its same-strand pairs
+in a new order: pairs whose partner comes earlier than the anchor, nearest
+first, then the other pairs, then the self pairs. After each
+earlier-partner pair it sends the pair's final end position, and whether
+the pair reached the aligner, to the rank that owns the anchor's self pair:
+one small message, received while that rank keeps aligning. A self pair
+starts once the answers it needs have arrived; until then it is set aside
+and run after the rank's other pairs. The rare value that comes from an
+earlier contig is found at the end with two reductions. Opposite-strand
+pairs never read the value and are aligned as before.
+
+Where a range's first aligner call is a self pair's own, FastGA reads a
+variable it has not set. A build of FastGA that prints the value showed
+32,764 to 32,767 for the first range of a run and 0 for the others, on all
+four datasets; we use 32,767 and 0.
+
+\paragraph{Cost and limits.} The change needs FastGA's index file beside
+the genome database and a map of one byte per pair of contigs, 2\,MB on
+hsapiens90.chr6. At 64 ranks, ranks send about 125,000 messages on that
+dataset and 1,900 on primates14.chr6. The loop itself is unchanged apart
+from setting and reporting the value. Which rank owns a pair can still be
+chosen freely, but a self pair cannot start before its nearest earlier
+partners have been aligned, wherever they are, which constrains schedules
+that reorder pairs within a rank (Section~\ref{sec:disc:future}). An
+environment variable restores the original order.

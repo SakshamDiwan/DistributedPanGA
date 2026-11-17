@@ -17,25 +17,21 @@ missed the same single alignment, a same-strand self-alignment of one
 contig over about 3.9\,kbp; every other line matched. FastGA's output is
 the same at 16 and 32 threads.
 
-We traced the miss to FastGA's alignment loop, which our code copies. When a
-contig is aligned with itself and a candidate lies on the main diagonal, the
-loop skips the aligner and then reads an end position that the previous
-aligner call left, usually for a different contig pair. FastGA aligns its
-pairs in a fixed order, so that value is fixed there. In our pipeline it
-depended on which pairs a rank owned: it was 653 with 32 ranks and about
-87 million with 64, and the larger value made the loop skip the alignment.
+We traced the miss to FastGA's alignment loop, which our code copies. For
+this contig's pair with itself, the loop read an end position left by the
+previous aligner call on the same rank. That value was 653 with 32 ranks
+and about 87 million with 64, and the larger value made the loop jump past
+the alignment. FastGA aligns its pairs in a fixed order, so the value is
+fixed there.
 
-DistributedPanGA now reconstructs FastGA's order, from the contig order in
-FastGA's index and FastGA's division of the contigs among its threads, and
-starts each such pair from the value FastGA would have had. With this
-build, which produced every DistributedPanGA time in this paper, the output
-is byte-identical to FastGA's in all 36 runs of
+The current build reproduces FastGA's order for these pairs
+(Section~\ref{sec:impl:order}) and produced every DistributedPanGA time in
+this paper. Its output is byte-identical to FastGA's in all 36 runs of
 Table~\ref{tab:pipeline}'s twelve configurations. A build of FastGA that
-prints the value confirms the reconstruction:
-all 1,202 values our code derives on the four datasets equal FastGA's. For
-11 further pairs FastGA reads a variable it has not set. It printed
-32,764 to 32,767 there for the first contig of a run and 0 otherwise, and
-we use 32,767 and 0.
+prints the value confirms the reconstruction: all 1,202 values our code
+derives on the four datasets equal FastGA's. For 11 further pairs FastGA
+reads a variable it has not set, and our values match only because we
+chose the ones FastGA printed.
 
 The change costs little time. In single runs of one binary on the same
 day, with and without it, hsapiens90.chr6 took 301.5\,s against 296.1\,s
