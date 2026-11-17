@@ -86,6 +86,24 @@ static void log_value(int c, int bepos, int64_t key, const char *how)
             c,Pos_Of[c],bepos,Contig_At[key_pos(key)],how);
 }
 
+// The first contig of a FastGA thread range has no earlier row to fall back
+// on. If it also has no earlier partner with a call, FastGA's value is unset.
+// Known at once when the contig shares seeds with no earlier partner, else
+// once Eb is in. Returns 1 and the value if this is such a case.
+static int unset_now(int c, int *bepos)
+{ int x = Pos_Of[c];
+
+  if (Range_Start[x] != x)
+    return 0;
+  if (Cand[x] != 0 && !(Eb_ready && Eb[x] == 0))
+    return 0;
+  *bepos = (x == 0) ? Unset_Main : 0;
+  St.unset += 1;
+  fprintf(stderr,"[fga-self] contig=%d pos=%d bepos=%d from=unset (first call of the FastGA "
+                 "range starting at pos %d)\n",c,x,*bepos,x);
+  return 1;
+}
+
 // --- hooks -------------------------------------------------------------------
 
 static int h_pair_class(int a, int b)
@@ -155,7 +173,7 @@ static int h_self_value(int c, int *bepos)
       log_value(c,*bepos,Eb[x],"(in order, not the nearest)");
       return 1;
     }
-  return 0;
+  return unset_now(c,bepos);
 }
 
 // stage 0: finish the candidate exchange; stage 1: the all-earlier-partners one.
@@ -191,7 +209,7 @@ static int h_self_ready(int c, int *bepos)
       log_value(c,*bepos,Eb[x],"(set aside, not the nearest)");
       return 1;
     }
-  return 0;
+  return unset_now(c,bepos);
 }
 
 static void h_round_begin(void)
