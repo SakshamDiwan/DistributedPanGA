@@ -1,12 +1,12 @@
 \subsection{Scaling across datasets}\label{sec:results:scaling}
 
 Fig.~\ref{fig:strong}a and~f compare the four datasets. At the largest
-doubling of ranks tested for each, the total time falls by 1.78$\times$ on
-yeast7 (4 to 8 ranks), 1.41$\times$ on primates4.chr6 (8 to 16),
-0.99$\times$ on primates14.chr6 (32 to 64) and 1.62$\times$ on
+doubling of ranks tested for each, the total time falls by 1.86$\times$ on
+yeast7 (4 to 8 ranks), 1.40$\times$ on primates4.chr6 (8 to 16),
+1.00$\times$ on primates14.chr6 (32 to 64) and 1.62$\times$ on
 hsapiens90.chr6 (32 to 64). At its largest rank count, the slowest rank's
-alignment time is 1.70 times the average on primates4.chr6, 6.59 on
-primates14.chr6 and 1.49 on hsapiens90.chr6 (Table~\ref{tab:perrank}).
+alignment time is 1.87 times the average on primates4.chr6, 6.82 on
+primates14.chr6 and 1.43 on hsapiens90.chr6 (Table~\ref{tab:perrank}).
 
 On hsapiens90.chr6, the per-pair records sum to 6,013\,s of alignment work
 at 32 ranks and 6,426\,s at 64, and the most expensive contig pair, a
@@ -17,6 +17,6 @@ the most expensive pair takes 773\,s, about 7\% of all alignment work
 FastGA's output on hsapiens90.chr6 has 4.7$\times$ the aligned bases of
 primates14.chr6 in 0.30$\times$ as many alignments
 (Table~\ref{tab:datasets}): the average alignment is 467\,kbp long against
-30\,kbp. Summed over ranks, DistributedPanGA spends about 6,000\,s aligning
-hsapiens90.chr6 at 32 ranks and about 11,550\,s aligning primates14.chr6 at
+30\,kbp. Summed over ranks, DistributedPanGA spends about 6,300\,s aligning
+hsapiens90.chr6 at 32 ranks and about 10,700\,s aligning primates14.chr6 at
 16 (the average rank's time in Table~\ref{tab:perrank} times the ranks).

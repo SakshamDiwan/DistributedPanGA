@@ -16,11 +16,11 @@ The stages are extraction; the distributed sort; seed generation and
 redistribution (Section~\ref{sec:methods:overview}, stages 3--4); and
 alignment with PAF output (stages 5--6). Ranks that finish extraction
 early wait at the start of the sort for the slowest one; we count that wait
-as extraction, not as sort. Each yeast and primate configuration ran three times. We report the run
+as extraction, not as sort. Each DistributedPanGA configuration ran three times. We report the run
 with the median total time, so its stage times add up to its total. Times
 are given to two decimals; speedups, ratios and percentages are rounded.
-The hsapiens90.chr6 rows are single runs, not medians: DistributedPanGA ran
-twice and FastGA once per configuration (Section~\ref{sec:results:human}).
+FastGA ran three times per configuration on the yeast and primate datasets
+and once on hsapiens90.chr6 (Section~\ref{sec:results:human}).
 
 FastGA ran on one node with $t$ threads. Its time is the sum of
 \texttt{GIXmake}, \texttt{FastGA} and \texttt{ALNtoPAF}. On the yeast and

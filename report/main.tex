@@ -84,8 +84,8 @@ cores. DistributedPanGA spreads FastGA's index, seed generation
 and alignment across MPI ranks, keeps FastGA's alignment code, and must
 reproduce FastGA's output exactly. On yeast and primate pangenomes its
 output is byte-identical to FastGA's and, at equal core counts, it is up to
-1.9$\times$ faster. On 90 human chromosome-6 haplotypes, 32 ranks on four
-nodes take 291\,s and 64 ranks 180\,s, against 1,480\,s for FastGA's fastest
+2.1$\times$ faster. On 90 human chromosome-6 haplotypes, 32 ranks on four
+nodes take 298\,s and 64 ranks 184\,s, against 1,480\,s for FastGA's fastest
 measured one-node run. One of 1.38 million alignments was at first lost at
 64 ranks, because FastGA's alignment loop carries a value from one contig
 pair to the next; DistributedPanGA now reproduces that value and matches

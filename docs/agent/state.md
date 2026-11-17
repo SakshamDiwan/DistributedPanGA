@@ -122,6 +122,24 @@ Merge in order: #9 → #10 → #11 → this.
     timings on this build; report to FastGA's authors. The alternative
     one-line fix (zero `bbpos/bepos`) is on local branch `fix-self-straddle`:
     it changes up to 0.053% of FastGA's own alignments, so it was not taken.
+  - **Report sweep on this build (2026-11-17, jobs 61449300-61449335):** the
+    report's 12 configurations, three repeats each, all 36 gold=MATCH;
+    repeats within about 1%. Filed in `~/pga-report-results-order` (layout of
+    `report/fig/make_figs.py`); tables, figures and every number in the
+    report text now come from it. `make_figs.py` reads hsapiens90 from
+    results.tsv, leaves `table_fastga.tex` alone when there is no
+    `fastga.tsv` (FastGA rows are still Saksham's and the hand-added human
+    ones), and subtracts each rank's wait for other ranks from its
+    alignment time.
+  - **Unexplained, for Saksham:** his earlier table rows for the three small
+    datasets were 4-20% slower in total than this sweep (yeast7 1 rank
+    79.97 vs 66.61 s; per-rank search 41.91 vs 23.08 s). Not a code effect:
+    the old code in our job setup already gave the new times (yeast7 8 ranks
+    9.40 s, primates4 16 ranks 70.5 s on 2026-11-14; yeast7 1-rank search
+    22.6 s on 2026-10-12). His FastGA times do reproduce here within 2%.
+    So his pipeline runs differ in setup (build flags, binding, darshan?);
+    his `jobs/report` scripts are not in the repo. Ours:
+    `jobs/human/07_report_sweep.sbatch`.
   - User decides when to merge. Offline notes (not in git):
     `notes/local/missing-alignment.pdf`, `replicating-fastga.pdf`.
 - **Report (2026-11-14, branch `report-human-merge`, not pushed):** human rows
