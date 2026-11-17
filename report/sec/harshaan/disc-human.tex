@@ -18,13 +18,20 @@ The speed costs memory. On hsapiens90.chr6, the \texttt{FastGA} step peaked
 at 15.1\,GB or less. DistributedPanGA peaked at 22.9\,GB per rank with 32 ranks and
 14.1\,GB with 64, which is 675\,GB and 747\,GB summed over ranks.
 
-The alignment first missing at 64 ranks was the only disagreement with
-FastGA across all datasets and rank counts, and it showed that FastGA's
-output for a contig aligned with itself depends on the order in which
-FastGA aligns its pairs (Section~\ref{sec:results:human}). We chose to
-reproduce that order, which keeps FastGA and its output as the reference.
-The alternative is to clear the leftover value, a one-line change that
-makes the result independent of order. We tested it in both programs: their
+Exact agreement on this dataset came in two steps. A first version, which
+aligned each rank's pairs in its own order, matched FastGA with 32 ranks
+but missed one same-strand self-alignment of about 3.9\,kbp with 64. For
+that contig's pair with itself, FastGA's loop read an end position left by
+the previous aligner call: 653 with 32 ranks and about 87 million with 64,
+and the larger value made it jump past the alignment. It was the only
+disagreement on any dataset, and it showed that FastGA's output for a
+contig aligned with itself depends on its order of pairs. We chose to
+reproduce that order (Section~\ref{sec:impl:order}), which keeps released
+FastGA as the reference. In single runs of one binary on the same day,
+with and without it, hsapiens90.chr6 took 301.5 against 296.1\,s with 32
+ranks and 188.6 against 186.0\,s with 64, within the 1\% by which repeats
+differ. The alternative is to clear the leftover value, a one-line change
+that makes the result independent of order. We tested it in both programs: their
 outputs then agreed on all four datasets, but differed from released
 FastGA in up to 0.053\% of alignments (820 of 1,547,485 on primates4.chr6),
 all of them same-strand self-alignments. Which behaviour is intended is for

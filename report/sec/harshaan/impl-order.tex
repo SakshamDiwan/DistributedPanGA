@@ -9,9 +9,9 @@ the start and end in the first sequence but not in the second. It then
 continues from the old end in the second sequence, which belongs to the
 previous aligner call, usually for a different contig pair. If that value
 lies ahead of the loop's position, the loop jumps to it and can skip real
-alignments. Our code copies the loop, so the result for such a pair
-depended on which pair a rank aligned just before it, and so on the rank
-count (Section~\ref{sec:results:human}).
+alignments. Our code copies the loop, so without further care the result
+for such a pair would depend on which pair a rank aligned just before it,
+and so on the rank count (Section~\ref{sec:disc:human}).
 
 \paragraph{FastGA's order.} FastGA numbers the contigs by length, longest
 first, and stores that order in its index. It cuts the contigs, in this
@@ -42,9 +42,10 @@ pairs never read the value and are aligned as before.
 Where a range's first aligner call is a self pair's own, FastGA reads a
 variable it has not set. A build of FastGA that prints the value showed
 32,764 to 32,767 for the first range of a run and 0 for the others, on all
-four datasets; we use 32,767 and 0.
+four datasets; we use 32,767 and 0. On all four datasets, the 1,202 other
+values our code derives equal the ones that build printed.
 
-\paragraph{Cost and limits.} The change needs FastGA's index file beside
+\paragraph{Cost and limits.} Reproducing the order needs FastGA's index file beside
 the genome database and a map of one byte per pair of contigs, 2\,MB on
 hsapiens90.chr6. At 64 ranks, ranks send about 125,000 messages on that
 dataset and 1,900 on primates14.chr6. The loop itself is unchanged apart

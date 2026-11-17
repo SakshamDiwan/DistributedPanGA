@@ -11,37 +11,6 @@ nodes, so the rank count changes but the node count does not. FastGA ran
 once with 16 threads and once with 32, both on one index built with 16
 threads, because \texttt{GIXmake} crashes with 32 threads on this input.
 
-\paragraph{Correctness.} An earlier build was byte-identical to FastGA's
-sorted output with 32 ranks, in two runs. With 64 ranks, both of its runs
-missed the same single alignment, a same-strand self-alignment of one
-contig over about 3.9\,kbp; every other line matched. FastGA's output is
-the same at 16 and 32 threads.
-
-We traced the miss to FastGA's alignment loop, which our code copies. For
-this contig's pair with itself, the loop read an end position left by the
-previous aligner call on the same rank. That value was 653 with 32 ranks
-and about 87 million with 64, and the larger value made the loop jump past
-the alignment. FastGA aligns its pairs in a fixed order, so the value is
-fixed there.
-
-The current build reproduces FastGA's order for these pairs
-(Section~\ref{sec:impl:order}) and produced every DistributedPanGA time in
-this paper. Its output is byte-identical to FastGA's in all 36 runs of
-Table~\ref{tab:pipeline}'s twelve configurations. A build of FastGA that
-prints the value confirms the reconstruction: all 1,202 values our code
-derives on the four datasets equal FastGA's. For 11 further pairs FastGA
-reads a variable it has not set, and our values match only because we
-chose the ones FastGA printed.
-
-The change costs little time. In single runs of one binary on the same
-day, with and without it, hsapiens90.chr6 took 301.5\,s against 296.1\,s
-with 32 ranks and 188.6\,s against 186.0\,s with 64, and primates14.chr6
-took 1,188.3\,s against 1,180.4\,s with 64 (totals as the program reports
-them, before the correction for extraction wait in
-Section~\ref{sec:results:setup}). Three repeats of each of these
-configurations differ by about 1\%, so we cannot separate a cost from
-run-to-run variation.
-
 \paragraph{Time.} DistributedPanGA takes 298.34\,s with 32 ranks and
 183.85\,s with 64, a speedup of 1.62 (Table~\ref{tab:pipeline},
 Fig.~\ref{fig:strong}e). FastGA takes 1,480.42\,s with 16 threads and
@@ -54,3 +23,8 @@ cores. Alignment is 86--87\% of DistributedPanGA's total and the sort
 7--9\%, its largest share on any dataset. The slowest rank's alignment
 time is 1.30 times the average at 32 ranks and 1.43 at 64
 (Table~\ref{tab:perrank}).
+
+\paragraph{Correctness.} All six runs, three with 32 ranks and three with
+64, are byte-identical to FastGA's sorted output, as are all yeast and
+primate runs (Section~\ref{sec:results:small}). FastGA's own output is the
+same at 16 and 32 threads.
