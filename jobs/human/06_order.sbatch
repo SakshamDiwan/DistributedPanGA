@@ -61,8 +61,8 @@ fi
 grep -ho '\[fga-order\] on.*' merge.err | head -1
 grep -ho '\[fga-self\].*' merge.err | LC_ALL=C sort -t= -k3 -n > fga-self.txt
 grep -ho '\[fga-range\].*' merge.err | LC_ALL=C sort -t= -k2 -n > fga-range.txt
-echo "self pairs: $(wc -l < fga-self.txt)  not nearest partner: $(grep -c 'not the nearest' fga-self.txt)  from earlier row: $(grep -c 'from=row' fga-self.txt)  unset: $(grep -c 'from=unset' fga-self.txt)  ranges: $(wc -l < fga-range.txt)"
-grep -ho '\[fga-order\] rank.*' merge.err | awk '{for(i=1;i<=NF;i++){split($i,a,"=");if(a[1]=="wait_cand_s"&&a[2]>w)w=a[2];if(a[1]=="wait_all_s"&&a[2]>v)v=a[2];if(a[1]=="rounds_s"&&a[2]>r)r=a[2];if(a[1]=="set_aside")s+=a[2]}}END{printf "order overhead: self pairs set aside %d; longest wait for candidates %.3f s, for all earlier partners %.3f s, in final rounds %.3f s\n",s,w,v,r}'
+echo "self pairs: $(wc -l < fga-self.txt)  from earlier row: $(grep -c 'from=row' fga-self.txt)  unset: $(grep -c 'from=unset' fga-self.txt)  ranges: $(wc -l < fga-range.txt)"
+grep -ho '\[fga-order\] rank.*' merge.err | awk '{for(i=1;i<=NF;i++){split($i,a,"=");if(a[1]=="wait_s"&&a[2]>w)w=a[2];if(a[1]=="rounds_s"&&a[2]>r)r=a[2];if(a[1]=="set_aside")s+=a[2];if(a[1]=="answers_sent")m+=a[2]}}END{printf "order overhead: self pairs set aside %d; longest wait for a result from another rank %.3f s; results sent between ranks %d; longest time in final rounds %.3f s\n",s,w,m,r}'
 python3 -I $R/scripts/analyze_align_balance.py $RUN/out > balance.txt 2>&1; grep -E '^max/mean' balance.txt
 rm -rf "${RUN:?}/tmp" "${RUN:?}/scratch"
 sacct -j $SLURM_JOB_ID --format=JobID%-16,Elapsed,MaxRSS,State -P | tail -n +2 | head -5

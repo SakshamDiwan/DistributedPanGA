@@ -581,7 +581,8 @@ int main(int argc, char *argv[])
                                       A_CONTIG_STRAND_BYTES, B_POSITION_BYTES,
                                       B_CONTIG_STRAND_BYTES };
         fastga_order_setup(gdb_stem, gdb, (const int64_t *) N_Units[0].buck,
-                           2 * DBYTE + B_CONTIG_STRAND_BYTES + 2, &fo_seeds, MPI_COMM_WORLD);
+                           2 * DBYTE + B_CONTIG_STRAND_BYTES + 2, &fo_seeds,
+                           RankForPair, MPI_COMM_WORLD);
     }
     t0 = now_s();
     pair_sort_search(gdb, gdb);

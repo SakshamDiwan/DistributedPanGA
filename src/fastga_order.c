@@ -17,21 +17,24 @@
 //             the last call of the nearest earlier contig's row
 //
 // Pairs of two different contigs never read the leftover value, so their
-// final bepos is the same on any rank. Ranks publish them with reductions,
-// all indexed by position x in FastGA's order, with keys
-// (pos(b)+1)<<32 | bepos so that MPI_MAX picks the latest partner:
+// final bepos is the same on any rank. Each rank therefore sends the result
+// of every pair (x,b), b before x in FastGA's order, to the rank that owns
+// the self pair (x,x): one small message per pair. The owner knows, from a
+// map of which pairs have seeds, the earlier partners of x in order of
+// nearness, and can start (x,x) once it has heard from the nearest partner
+// that made a call and from every partner nearer than that. Ranks align
+// their earlier-partner pairs nearest first, so those answers come early; a
+// self pair whose value is not in yet is set aside and aligned after the
+// rank's other pairs. Messages are received in poll(), which the alignment
+// loop calls often.
 //
-//   Cand[x]  nearest partner before x that has seeds with x (known up front)
-//   Ea[x]    key of the candidate pair (x,Cand[x]) if it made a call
-//   Eb[x]    key of the latest partner before x whose pair made a call
-//   L[x]     key of the latest partner of x, other than x, whose pair made a call
-//   S[x]     self pair (x,x): 0 none, 1 pending, 2 done without a call,
-//            3+bepos done with a call
+// The rare value that comes from an earlier contig's row is resolved at the
+// end with two reductions, indexed by position x in FastGA's order:
 //
-// Almost every value comes from Ea. Candidates are aligned first and Ea is a
-// non-blocking reduction, so a rank waits only if it reaches its self pairs
-// before every rank has finished its candidates. MPI advances a non-blocking
-// collective only inside MPI calls, hence poll().
+//   L[x]  (pos(b)+1)<<32 | bepos for the latest partner of x, other than x,
+//         whose pair made a call (MPI_MAX picks the latest)
+//   S[x]  self pair (x,x): 0 none, 1 pending, 2 done without a call,
+//         3+bepos done with a call
 //
 // Where FastGA has no earlier call in the range it reads a field it never
 // set. That cannot be derived. A diagnostic build of FastGA 178afcb on
@@ -47,28 +50,30 @@
 #include <string.h>
 #include <unistd.h>
 
+#define MSG_TAG 7701
+
 static MPI_Comm Comm;
 static int      My_Rank;
 static int      N;               // contigs
 static int     *Pos_Of;          // contig -> position in FastGA's order
 static int     *Contig_At;       // position -> contig (the .gix permutation)
 static int     *Range_Start;     // position -> first position of its thread range
-static int64_t *Cand;
-static int64_t *E_loc, *Ea_send, *Ea, *Eb_send, *Eb;
+static uint8_t *Has;             // Has[xa*N+xb], xb < xa: the pair has same-strand seeds
+static const int8_t *Owner;      // rank_for_pair[a*N+b], by contig
+static int64_t *Clen;            // contig length by position
+static int    **Answer;          // rows whose self pair this rank owns: per earlier
+static int     *NNear;           //   partner, nearest first: -1 unknown, -2 no call, else bepos
+static int64_t  Expect, Got;     // messages this rank must receive in all
 static int64_t *L_loc, *L_glob;
 static int64_t *S_loc, *S_glob;
-static MPI_Request Ea_req = MPI_REQUEST_NULL;
-static MPI_Request Eb_req = MPI_REQUEST_NULL;
-static int      Ea_ready = 0;
-static int      Eb_ready = 0;
 static int      Unset_Main = 32767;
 static int      Log_Values = 0;
 static int      Round      = 0;
 static int64_t  Last_Remaining = -1;
 
 static struct {
-    int64_t direct, late, later, fallback, unset;
-    double  wait_cand_s, wait_all_s, rounds_s;
+    int64_t direct, late, fallback, unset, sent;
+    double  wait_s, rounds_s;
     int     rounds;
 } St;
 
@@ -80,53 +85,96 @@ static int64_t make_key(int pos_b, int bepos)
 static int key_pos(int64_t key)   { return (int) (key >> 32) - 1; }
 static int key_bepos(int64_t key) { return (int) (key & 0xffffffffll); }
 
-static void log_value(int c, int bepos, int64_t key, const char *how)
-{ if (Log_Values)
-    fprintf(stderr,"[fga-self] contig=%d pos=%d bepos=%d from=partner:%d %s\n",
-            c,Pos_Of[c],bepos,Contig_At[key_pos(key)],how);
+// Nearness of earlier partner xb to xa: how many earlier partners with seeds
+// lie between them. 0 = the nearest.
+static int nearness(int xa, int xb)
+{ const uint8_t *row = Has + (int64_t) xa*N;
+  int y, k = 0;
+
+  for (y = xb+1; y < xa; y++)
+    k += row[y];
+  return k;
 }
 
-// The first contig of a FastGA thread range has no earlier row to fall back
-// on. If it also has no earlier partner with a call, FastGA's value is unset.
-// Known at once when the contig shares seeds with no earlier partner, else
-// once Eb is in. Returns 1 and the value if this is such a case.
-static int unset_now(int c, int *bepos)
-{ int x = Pos_Of[c];
+static void store_answer(int xa, int k, int called, int bepos)
+{ Got += 1;
+  if (Answer[xa] != NULL)
+    Answer[xa][k] = called ? bepos : -2;
+}
 
+static void receive_one(MPI_Status *st)
+{ int msg[4];
+
+  MPI_Recv(msg,4,MPI_INT,st->MPI_SOURCE,MSG_TAG,Comm,MPI_STATUS_IGNORE);
+  store_answer(msg[0],msg[1],msg[2],msg[3]);
+}
+
+// The entry value of self pair c from the answers so far.
+//   1  known (*bepos set)      0  an answer it needs has not arrived
+//  -1  no earlier partner made a call and c is not first in its FastGA range:
+//      the value comes from an earlier contig's row (final rounds)
+static int from_answers(int c, int *bepos, const char *how)
+{ int x = Pos_Of[c];
+  int k;
+
+  for (k = 0; k < NNear[x]; k++)
+    { int a = Answer[x][k];
+      if (a == -1)
+        return 0;
+      if (a >= 0)
+        { *bepos = a;
+          if (Log_Values)
+            { int y, j = k;                 // the k-th nearest earlier partner
+              for (y = x-1; y >= 0; y--)
+                if (Has[(int64_t) x*N+y] && j-- == 0)
+                  break;
+              fprintf(stderr,"[fga-self] contig=%d pos=%d bepos=%d from=partner:%d nearness=%d %s\n",
+                      c,x,*bepos,Contig_At[y],k,how);
+            }
+          return 1;
+        }
+    }
   if (Range_Start[x] != x)
-    return 0;
-  if (Cand[x] != 0 && !(Eb_ready && Eb[x] == 0))
-    return 0;
+    return -1;
   *bepos = (x == 0) ? Unset_Main : 0;
   St.unset += 1;
   fprintf(stderr,"[fga-self] contig=%d pos=%d bepos=%d from=unset (first call of the FastGA "
-                 "range starting at pos %d)\n",c,x,*bepos,x);
+                 "range starting at pos %d) %s\n",c,x,*bepos,x,how);
   return 1;
 }
 
 // --- hooks -------------------------------------------------------------------
 
 static int h_pair_class(int a, int b)
-{ int xa, xb;
-
-  if (a == b) return 0;
-  xa = Pos_Of[a];
-  xb = Pos_Of[b];
-  if (xb > xa) return 1;
-  return (Cand[xa] == xb+1) ? -2 : -1;
+{ if (a == b) return 0;
+  return (Pos_Of[b] < Pos_Of[a]) ? -1 : 1;
 }
 
-static void h_poll(void)
-{ int flag;
+// Earlier-partner pairs: nearest first, and among equals the longer anchor
+// first, since its self pair is the more expensive one to keep waiting.
+static int64_t h_order_key(int a, int b)
+{ int xa = Pos_Of[a];
+  return (((int64_t) nearness(xa,Pos_Of[b])) << 36) | ((((int64_t) 1) << 36) - 1 - Clen[xa]);
+}
 
-  if (Ea_req != MPI_REQUEST_NULL)
-    { MPI_Test(&Ea_req,&flag,MPI_STATUS_IGNORE);
-      if (flag) Ea_ready = 1;
+static void drain(void)
+{ MPI_Status st;
+  int flag;
+
+  while (1)
+    { MPI_Iprobe(MPI_ANY_SOURCE,MSG_TAG,Comm,&flag,&st);
+      if (!flag) break;
+      receive_one(&st);
     }
-  if (Eb_req != MPI_REQUEST_NULL)
-    { MPI_Test(&Eb_req,&flag,MPI_STATUS_IGNORE);
-      if (flag) Eb_ready = 1;
-    }
+}
+
+// Called from the alignment loop for every aligner call: look for messages
+// on every 16th call only, to keep the cost out of the loop.
+static void h_poll(void)
+{ static unsigned calls = 0;
+
+  if ((++calls & 15) == 0)
+    drain();
 }
 
 static void h_record(int a, int b, int calls, int bepos)
@@ -137,87 +185,60 @@ static void h_record(int a, int b, int calls, int bepos)
       return;
     }
   if (calls > 0)
-    { int     xb  = Pos_Of[b];
-      int64_t key = make_key(xb,bepos);
+    { int64_t key = make_key(Pos_Of[b],bepos);
       if (key > L_loc[xa]) L_loc[xa] = key;
-      if (xb < xa && key > E_loc[xa]) E_loc[xa] = key;
     }
-}
+  if (Pos_Of[b] < xa)
+    { int owner = Owner[(int64_t) a*N + a];
+      int k     = nearness(xa,Pos_Of[b]);
 
-static void h_pass_done(int pass)
-{ if (pass == 0)
-    { memcpy(Ea_send,E_loc,N*sizeof(int64_t));
-      MPI_Iallreduce(Ea_send,Ea,N,MPI_INT64_T,MPI_MAX,Comm,&Ea_req);
+      if (owner == My_Rank)
+        store_answer(xa,k,calls > 0,bepos);
+      else
+        { int msg[4] = { xa, k, calls > 0, bepos };
+          MPI_Send(msg,4,MPI_INT,owner,MSG_TAG,Comm);
+          St.sent += 1;
+        }
     }
-  else if (pass == 1)
-    { memcpy(Eb_send,E_loc,N*sizeof(int64_t));
-      MPI_Iallreduce(Eb_send,Eb,N,MPI_INT64_T,MPI_MAX,Comm,&Eb_req);
-    }
-  h_poll();
 }
 
 static int h_self_value(int c, int *bepos)
-{ int x = Pos_Of[c];
-
-  S_loc[x] = 1;
-  h_poll();
-  if (Ea_ready && Ea[x] != 0)
-    { *bepos = key_bepos(Ea[x]);
-      St.direct += 1;
-      log_value(c,*bepos,Ea[x],"(in order)");
+{ S_loc[Pos_Of[c]] = 1;
+  drain();
+  if (from_answers(c,bepos,"(in order)") == 1)
+    { St.direct += 1;
       return 1;
     }
-  if (Eb_ready && Eb[x] != 0)
-    { *bepos = key_bepos(Eb[x]);
-      St.later += 1;
-      log_value(c,*bepos,Eb[x],"(in order, not the nearest)");
-      return 1;
-    }
-  return unset_now(c,bepos);
-}
-
-// stage 0: finish the candidate exchange; stage 1: the all-earlier-partners one.
-static void h_self_begin(int stage)
-{ double t0 = MPI_Wtime();
-
-  if (stage == 0)
-    { if (Ea_req != MPI_REQUEST_NULL)
-        MPI_Wait(&Ea_req,MPI_STATUS_IGNORE);
-      Ea_ready = 1;
-      St.wait_cand_s += MPI_Wtime()-t0;
-    }
-  else
-    { if (Eb_req != MPI_REQUEST_NULL)
-        MPI_Wait(&Eb_req,MPI_STATUS_IGNORE);
-      Eb_ready = 1;
-      St.wait_all_s += MPI_Wtime()-t0;
-    }
+  return 0;
 }
 
 static int h_self_ready(int c, int *bepos)
-{ int x = Pos_Of[c];
+{ int r;
 
-  if (Ea[x] != 0)
-    { *bepos = key_bepos(Ea[x]);
-      St.late += 1;
-      log_value(c,*bepos,Ea[x],"(set aside)");
-      return 1;
-    }
-  if (Eb_ready && Eb[x] != 0)
-    { *bepos = key_bepos(Eb[x]);
-      St.later += 1;
-      log_value(c,*bepos,Eb[x],"(set aside, not the nearest)");
-      return 1;
-    }
-  return unset_now(c,bepos);
+  drain();
+  r = from_answers(c,bepos,"(set aside)");
+  if (r == 1) St.late += 1;
+  return r;
+}
+
+static void h_wait_message(void)
+{ MPI_Status st;
+  double t0 = MPI_Wtime();
+
+  MPI_Probe(MPI_ANY_SOURCE,MSG_TAG,Comm,&st);
+  receive_one(&st);
+  St.wait_s += MPI_Wtime()-t0;
 }
 
 static void h_round_begin(void)
 { double t0 = MPI_Wtime();
 
   if (Round == 0)
-    { if (Eb_req != MPI_REQUEST_NULL)
-        MPI_Wait(&Eb_req,MPI_STATUS_IGNORE);
+    { MPI_Status st;                      // every rank has sent all its answers
+      while (Got < Expect)
+        { MPI_Probe(MPI_ANY_SOURCE,MSG_TAG,Comm,&st);
+          receive_one(&st);
+        }
       MPI_Allreduce(L_loc,L_glob,N,MPI_INT64_T,MPI_MAX,Comm);
     }
   MPI_Allreduce(S_loc,S_glob,N,MPI_INT64_T,MPI_MAX,Comm);
@@ -225,22 +246,18 @@ static void h_round_begin(void)
   Round += 1;
 }
 
-// A self pair whose candidate made no call. First any earlier partner (Eb);
-// else walk back through earlier contigs of the same thread range to the
-// nearest row with a real call. In row y the order is: partners before y,
-// then (y,y), then partners after y; so a partner after y is the row's last
-// call if there is one, else the self pair's, else a partner before y.
+// A self pair with no earlier partner that made a call, not first in its
+// range: walk back through earlier contigs of the range to the nearest row
+// with a real call. In row y the order is: partners before y, then (y,y),
+// then partners after y; so a partner after y is the row's last call if
+// there is one, else the self pair's, else a partner before y.
 static int h_resolve(int c, int *bepos)
 { int x = Pos_Of[c];
-  int y;
+  int y, r;
 
-  if (Eb[x] != 0)
-    { *bepos = key_bepos(Eb[x]);
-      St.later += 1;
-      fprintf(stderr,"[fga-self] contig=%d pos=%d bepos=%d from=partner:%d (not the nearest)\n",
-              c,x,*bepos,Contig_At[key_pos(Eb[x])]);
-      return 1;
-    }
+  r = from_answers(c,bepos,"(final)");
+  if (r == 1) { St.late += 1; return 1; }
+  if (r == 0) return 0;
 
   for (y = x-1; y >= Range_Start[x]; y--)
     { int64_t k = L_glob[y];
@@ -402,9 +419,10 @@ static int64_t read_field(const uint8_t *p, int nbytes)
 }
 
 int fastga_order_setup(const char *gdb_stem, GDB *gdb, const int64_t *n_seed_count,
-                       int swide, const FastgaOrderSeeds *seeds, MPI_Comm comm)
+                       int swide, const FastgaOrderSeeds *seeds,
+                       const int8_t *rank_for_pair, MPI_Comm comm)
 { int      ok, T, nparts, nrange, i;
-  int64_t *gcount, *cand_loc;
+  int64_t *gcount;
   const char *env;
 
   Comm = comm;
@@ -442,11 +460,16 @@ int fastga_order_setup(const char *gdb_stem, GDB *gdb, const int64_t *n_seed_cou
   nparts = compute_ranges(gdb,gcount,swide,T,&nrange);
   free(gcount);
 
-  // Candidates: for each anchor, the nearest earlier partner it shares
-  // same-strand seeds with. One scan of this rank's seeds, then a reduction.
-  cand_loc = calloc(N,sizeof(int64_t));
-  Cand     = calloc(N,sizeof(int64_t));
-  { int      unit  = 1 + seeds->apos_bytes + seeds->actg_bytes
+  // Which pairs (x,b), b before x, have same-strand seeds: one scan of this
+  // rank's seeds, then a reduction. Every rank then knows each anchor's
+  // earlier partners in order of nearness.
+  if ((int64_t) N*N > 0x7fffffffll)
+    { if (My_Rank == 0)
+        fprintf(stderr,"[fga-order] disabled: %d contigs is too many for the pair map\n",N);
+      return 0;
+    }
+  { uint8_t *has_loc = calloc((size_t) N*N,1);
+    int      unit  = 1 + seeds->apos_bytes + seeds->actg_bytes
                        + seeds->bpos_bytes + seeds->bctg_bytes;
     int      aoff  = 1 + seeds->apos_bytes;
     int      boff  = aoff + seeds->actg_bytes + seeds->bpos_bytes;
@@ -455,39 +478,54 @@ int fastga_order_setup(const char *gdb_stem, GDB *gdb, const int64_t *n_seed_cou
     const uint8_t *p   = seeds->data;
     const uint8_t *end = p + seeds->len;
 
+    Has = calloc((size_t) N*N,1);
     for ( ; p + unit <= end; p += unit)
       { int a  = (int) (read_field(p+aoff,seeds->actg_bytes) & amask);
         int b  = (int) (read_field(p+boff,seeds->bctg_bytes) & bmask);
         int xa = Pos_Of[a];
         int xb = Pos_Of[b];
-        if (xb < xa && xb+1 > cand_loc[xa])
-          cand_loc[xa] = xb+1;
+        if (xb < xa)
+          has_loc[(int64_t) xa*N+xb] = 1;
       }
+    MPI_Allreduce(has_loc,Has,N*N,MPI_BYTE,MPI_BOR,comm);
+    free(has_loc);
   }
-  MPI_Allreduce(cand_loc,Cand,N,MPI_INT64_T,MPI_MAX,comm);
-  free(cand_loc);
 
-  E_loc   = calloc(N,sizeof(int64_t));
-  Ea_send = calloc(N,sizeof(int64_t));
-  Ea      = calloc(N,sizeof(int64_t));
-  Eb_send = calloc(N,sizeof(int64_t));
-  Eb      = calloc(N,sizeof(int64_t));
+  Owner  = rank_for_pair;
+  Clen   = malloc(N*sizeof(int64_t));
+  Answer = calloc(N,sizeof(int *));
+  NNear  = calloc(N,sizeof(int));
+  Expect = Got = 0;
+  for (i = 0; i < N; i++)
+    { int c = Contig_At[i], y, k;
+
+      Clen[i] = gdb->contigs[c].clen;
+      for (y = 0; y < i; y++)
+        NNear[i] += Has[(int64_t) i*N+y];
+      if (rank_for_pair[(int64_t) c*N + c] != My_Rank)
+        continue;
+      Expect += NNear[i];
+      Answer[i] = malloc((NNear[i]+1)*sizeof(int));
+      for (k = 0; k < NNear[i]; k++)
+        Answer[i][k] = -1;
+    }
+
   L_loc   = calloc(N,sizeof(int64_t));
   L_glob  = calloc(N,sizeof(int64_t));
   S_loc   = calloc(N,sizeof(int64_t));
   S_glob  = calloc(N,sizeof(int64_t));
   memset(&St,0,sizeof(St));
 
-  Hooks.pair_class  = h_pair_class;
-  Hooks.record      = h_record;
-  Hooks.pass_done   = h_pass_done;
-  Hooks.poll        = h_poll;
-  Hooks.self_value  = h_self_value;
-  Hooks.self_begin  = h_self_begin;
-  Hooks.self_ready  = h_self_ready;
-  Hooks.round_begin = h_round_begin;
-  Hooks.resolve     = h_resolve;
-  Hooks.round_end   = h_round_end;
+  Hooks.pair_class   = h_pair_class;
+  Hooks.order_key    = h_order_key;
+  Hooks.record       = h_record;
+  Hooks.poll         = h_poll;
+  Hooks.self_value   = h_self_value;
+  Hooks.self_ready   = h_self_ready;
+  Hooks.wait_message = h_wait_message;
+  Hooks.round_begin  = h_round_begin;
+  Hooks.resolve      = h_resolve;
+  Hooks.round_end    = h_round_end;
   Self_Order = &Hooks;
 
   if (My_Rank == 0)
@@ -500,10 +538,10 @@ int fastga_order_setup(const char *gdb_stem, GDB *gdb, const int64_t *n_seed_cou
 void fastga_order_report(void)
 { if (Self_Order == NULL) return;
   fprintf(stderr,"[fga-order] rank %d: self pairs in_order=%lld set_aside=%lld "
-                 "not_nearest=%lld from_earlier_row=%lld unset=%lld "
-                 "wait_cand_s=%.6f wait_all_s=%.6f rounds=%d rounds_s=%.6f\n",
-          My_Rank,(long long) St.direct,(long long) St.late,(long long) St.later,
-          (long long) St.fallback,(long long) St.unset,
-          St.wait_cand_s,St.wait_all_s,St.rounds,St.rounds_s);
+                 "from_earlier_row=%lld unset=%lld answers_sent=%lld answers_received=%lld "
+                 "wait_s=%.6f rounds=%d rounds_s=%.6f\n",
+          My_Rank,(long long) St.direct,(long long) St.late,
+          (long long) St.fallback,(long long) St.unset,(long long) St.sent,(long long) Got,
+          St.wait_s,St.rounds,St.rounds_s);
   Self_Order = NULL;
 }

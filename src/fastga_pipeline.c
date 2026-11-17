@@ -1145,7 +1145,18 @@ typedef struct {
     uint8 *b, *x;     // seeds of one (anchor, partner) pair: [b,x)
     int    a;
     int    j;
+    int    cls;       // Self_Order->pair_class
+    int64  key;       // Self_Order->order_key, partner-before pairs only
 } Seed_Group;
+
+static int GROUP_SORT(const void *l, const void *r)
+{ Seed_Group *x = *((Seed_Group **) l);
+  Seed_Group *y = *((Seed_Group **) r);
+
+  if (x->key != y->key)
+    return (x->key < y->key) ? -1 : 1;
+  return (x < y) ? -1 : ((x > y) ? 1 : 0);
+}
 
 typedef struct {
     uint8 *seeds;     // private copy: the sort array is reused for the C seeds
@@ -1179,7 +1190,6 @@ static void search_seeds_ordered(TP *parm, int64 nels)
 
   Seed_Group *grp;
   int64       ngrp, mgrp, g;
-  int         pass;
 
   if (NTHREADS != 1)
     { fprintf(stderr,"%s: FastGA-order emulation needs NTHREADS == 1\n",Prog_Name); exit (1); }
@@ -1241,22 +1251,37 @@ static void search_seeds_ordered(TP *parm, int64 nels)
         }
     }
 
-  // Pass 0: candidates.  Pass 1: other partners before the anchor.  Pass 2:
-  // partners after it.
+  // Partners before the anchor, nearest first (their results are what the
+  // self pairs wait for), then partners after it.
 
-  for (pass = 0; pass <= 2; pass++)
-    { int want = (pass == 0) ? -2 : ((pass == 1) ? -1 : 1);
+  { Seed_Group **ord;
+    int64        nord;
 
-      for (g = 0; g < ngrp; g++)
-        if (Self_Order->pair_class(grp[g].a,grp[g].j) == want)
-          ordered_run(grp[g].b,grp[g].x,swide,grp[g].a,grp[g].j,0,0);
-      Self_Order->pass_done(pass);
-    }
+    ord = Malloc((ngrp+1)*sizeof(Seed_Group *),"Allocating pair order");
+    if (ord == NULL) exit (1);
+    nord = 0;
+    for (g = 0; g < ngrp; g++)
+      { grp[g].cls = Self_Order->pair_class(grp[g].a,grp[g].j);
+        grp[g].key = 0;
+        if (grp[g].cls < 0)
+          { grp[g].key  = Self_Order->order_key(grp[g].a,grp[g].j);
+            ord[nord++] = grp+g;
+          }
+      }
+    qsort(ord,nord,sizeof(Seed_Group *),GROUP_SORT);
+    for (g = 0; g < nord; g++)
+      ordered_run(ord[g]->b,ord[g]->x,swide,ord[g]->a,ord[g]->j,0,0);
+    free(ord);
+
+    for (g = 0; g < ngrp; g++)
+      if (grp[g].cls > 0)
+        ordered_run(grp[g].b,grp[g].x,swide,grp[g].a,grp[g].j,0,0);
+  }
 
   // Self pairs whose entry value is already known; the rest are set aside.
 
   for (g = 0; g < ngrp; g++)
-    if (Self_Order->pair_class(grp[g].a,grp[g].j) == 0)
+    if (grp[g].cls == 0)
       { int bepos;
 
         if (Self_Order->self_value(grp[g].a,&bepos))
@@ -1295,24 +1320,34 @@ static void finish_deferred_self(TP *parm)
 
   remaining = NDeferred;
 
-  { int stage;
+  // Pairs whose value arrives as a message: align each as soon as it is in.
 
-    for (stage = 0; stage < 2; stage++)
-      { Self_Order->self_begin(stage);
-        for (d = 0; d < NDeferred; d++)
-          if (!Deferred[d].done)
-            { int bepos;
+  while (1)
+    { int waiting = 0, ran = 0;
 
-              if (Self_Order->self_ready(Deferred[d].c,&bepos))
-                { ordered_run(Deferred[d].seeds,Deferred[d].seeds+Deferred[d].len,Ordered_Swide,
-                              Deferred[d].c,Deferred[d].c,1,bepos);
-                  Deferred[d].done = 1;
-                  free(Deferred[d].seeds);
-                  remaining -= 1;
-                }
-            }
-      }
-  }
+      for (d = 0; d < NDeferred; d++)
+        if (!Deferred[d].done)
+          { int bepos;
+            int r = Self_Order->self_ready(Deferred[d].c,&bepos);
+
+            if (r == 1)
+              { ordered_run(Deferred[d].seeds,Deferred[d].seeds+Deferred[d].len,Ordered_Swide,
+                            Deferred[d].c,Deferred[d].c,1,bepos);
+                Deferred[d].done = 1;
+                free(Deferred[d].seeds);
+                remaining -= 1;
+                ran = 1;
+              }
+            else if (r == 0)
+              waiting = 1;
+          }
+      if (!waiting)
+        break;
+      if (!ran)
+        Self_Order->wait_message();
+    }
+
+  // The rest take their value from an earlier contig's row: final rounds.
 
   do
     { Self_Order->round_begin();
