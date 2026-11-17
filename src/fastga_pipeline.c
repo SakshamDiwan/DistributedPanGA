@@ -748,6 +748,7 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                           if (alow < alast) alow = alast;
                           ahgh -= BUCK_ANTI;
                           do {
+                            if (Self_Order != NULL) Self_Order->poll();   // not upstream
                             amid = alow + BUCK_ANTI;
                             if (amid > ahgh)
                               { amid = ahgh;
@@ -1013,6 +1014,9 @@ static void timed_align_contigs(uint8 *b, uint8 *x, int swide, int ctg1, int ctg
   int64  d, prev, run;
   uint8 *s;
 
+  if (Self_Order != NULL)
+    Self_Order->poll();
+
   if (Pair_Task_Hook == NULL)
     { align_contigs(b,x,swide,ctg1,ctg2,pair);
       return;
@@ -1237,21 +1241,19 @@ static void search_seeds_ordered(TP *parm, int64 nels)
         }
     }
 
-  // Pass 1: partner before the anchor.  Pass 2: partner after it.
+  // Pass 0: candidates.  Pass 1: other partners before the anchor.  Pass 2:
+  // partners after it.
 
-  for (pass = -1; pass <= 1; pass += 2)
-    { for (g = 0; g < ngrp; g++)
-        { int cls = Self_Order->pair_class(grp[g].a,grp[g].j);
-          if ((pass < 0 && cls < 0) || (pass > 0 && cls > 0))
-            ordered_run(grp[g].b,grp[g].x,swide,grp[g].a,grp[g].j,0,0);
-        }
-      if (pass < 0)
-        Self_Order->pass1_done();
-      else
-        Self_Order->pass2_done();
+  for (pass = 0; pass <= 2; pass++)
+    { int want = (pass == 0) ? -2 : ((pass == 1) ? -1 : 1);
+
+      for (g = 0; g < ngrp; g++)
+        if (Self_Order->pair_class(grp[g].a,grp[g].j) == want)
+          ordered_run(grp[g].b,grp[g].x,swide,grp[g].a,grp[g].j,0,0);
+      Self_Order->pass_done(pass);
     }
 
-  // Pass 3: self pairs whose entry value is known; the rest are set aside.
+  // Self pairs whose entry value is already known; the rest are set aside.
 
   for (g = 0; g < ngrp; g++)
     if (Self_Order->pair_class(grp[g].a,grp[g].j) == 0)
@@ -1292,6 +1294,26 @@ static void finish_deferred_self(TP *parm)
     return;
 
   remaining = NDeferred;
+
+  { int stage;
+
+    for (stage = 0; stage < 2; stage++)
+      { Self_Order->self_begin(stage);
+        for (d = 0; d < NDeferred; d++)
+          if (!Deferred[d].done)
+            { int bepos;
+
+              if (Self_Order->self_ready(Deferred[d].c,&bepos))
+                { ordered_run(Deferred[d].seeds,Deferred[d].seeds+Deferred[d].len,Ordered_Swide,
+                              Deferred[d].c,Deferred[d].c,1,bepos);
+                  Deferred[d].done = 1;
+                  free(Deferred[d].seeds);
+                  remaining -= 1;
+                }
+            }
+      }
+  }
+
   do
     { Self_Order->round_begin();
       for (d = 0; d < NDeferred; d++)
