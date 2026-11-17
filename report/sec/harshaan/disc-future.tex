@@ -25,4 +25,6 @@ in one signed byte. The map has one entry per ordered pair of contigs, so it
 grows with the square of the contig count: 2\,MB for the 1,422 contigs of
 hsapiens90.chr6, but 1\,GB per rank for 32,000 contigs. Every rank also
 holds its records and seeds in memory, so the memory summed over ranks is
-far above FastGA's (Section~\ref{sec:disc:human}).
+far above FastGA's (Section~\ref{sec:disc:human}). Reproducing FastGA's
+order of pairs adds a second map of the same size and needs FastGA's index
+file beside the genome database.

@@ -82,13 +82,15 @@ FastGA takes one scan of a single sorted $k$-mer table~\cite{fastga,garrison},
 but FastGA runs on one node, so its running time is bounded by that node's
 cores. DistributedPanGA spreads FastGA's index, seed generation
 and alignment across MPI ranks, keeps FastGA's alignment code, and must
-reproduce FastGA's output exactly. On yeast and primate pangenomes, every run
-is byte-identical to FastGA and, at equal core counts, up to 1.9$\times$
-faster. On 90 human chromosome-6 haplotypes, 32 ranks on four nodes
-reproduce FastGA's output exactly in 291\,s, against 1,480\,s for FastGA's
-fastest measured one-node run; 64 ranks take 180\,s but miss one of 1.38
-million alignments, which is under investigation. Alignment dominates the run time, and its uneven cost
-across ranks limits further scaling.}
+reproduce FastGA's output exactly. On yeast and primate pangenomes its
+output is byte-identical to FastGA's and, at equal core counts, it is up to
+1.9$\times$ faster. On 90 human chromosome-6 haplotypes, 32 ranks on four
+nodes take 291\,s and 64 ranks 180\,s, against 1,480\,s for FastGA's fastest
+measured one-node run. One of 1.38 million alignments was at first lost at
+64 ranks, because FastGA's alignment loop carries a value from one contig
+pair to the next; DistributedPanGA now reproduces that value and matches
+FastGA at every rank count tested. Alignment dominates the run time, and
+its uneven cost across ranks limits further scaling.}
 
 \maketitle
 

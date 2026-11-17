@@ -18,7 +18,16 @@ The speed costs memory. On hsapiens90.chr6, the \texttt{FastGA} step peaked
 at 15.1\,GB or less. DistributedPanGA peaked at 22.9\,GB per rank with 32 ranks and
 14.1\,GB with 64, which is 675\,GB and 747\,GB summed over ranks.
 
-The single alignment missing at 64 ranks is the only disagreement with
-FastGA across all datasets and rank counts. We assume an edge case in our
-pipeline or in FastGA and will investigate it. Until it is explained, exact
-agreement is established for human chromosome~6 at 32 ranks only.
+The alignment first missing at 64 ranks was the only disagreement with
+FastGA across all datasets and rank counts, and it showed that FastGA's
+output for a contig aligned with itself depends on the order in which
+FastGA aligns its pairs (Section~\ref{sec:results:human}). We chose to
+reproduce that order, which keeps FastGA and its output as the reference.
+The alternative is to clear the leftover value, a one-line change that
+makes the result independent of order. We tested it in both programs: their
+outputs then agreed on all four datasets, but differed from released
+FastGA in up to 0.053\% of alignments (820 of 1,547,485 on primates4.chr6),
+all of them same-strand self-alignments. Which behaviour is intended is for
+FastGA's authors to decide; we have not yet reported it to them. Where
+FastGA reads an unset variable, its value is not determined by its input,
+so agreement for those 11 pairs rests on values observed on one system.

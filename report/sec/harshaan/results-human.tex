@@ -12,11 +12,37 @@ ran twice, with totals within 1\%, and we report the first run. FastGA ran
 once with 16 threads and once with 32, both on one index built with 16
 threads, because \texttt{GIXmake} crashes with 32 threads on this input.
 
-\paragraph{Correctness.} With 32 ranks, both runs are byte-identical to
-FastGA's sorted output. FastGA's output is the same at 16 and 32 threads.
-With 64 ranks, both runs miss the same single alignment, a same-strand
-self-alignment of one contig over about 3.9\,kbp; every other line matches.
-We hypothesize an edge case in our pipeline or in FastGA and will investigate it.
+\paragraph{Correctness.} The runs timed in this section used an earlier
+build. With 32 ranks, both were byte-identical to FastGA's sorted output.
+With 64 ranks, both missed the same single alignment, a same-strand
+self-alignment of one contig over about 3.9\,kbp; every other line matched.
+FastGA's output is the same at 16 and 32 threads.
+
+We traced the miss to FastGA's alignment loop, which our code copies. When a
+contig is aligned with itself and a candidate lies on the main diagonal, the
+loop skips the aligner and then reads an end position that the previous
+aligner call left, usually for a different contig pair. FastGA aligns its
+pairs in a fixed order, so that value is fixed there. In our pipeline it
+depended on which pairs a rank owned: it was 653 with 32 ranks and about
+87 million with 64, and the larger value made the loop skip the alignment.
+
+DistributedPanGA now reconstructs FastGA's order, from the contig order in
+FastGA's index and FastGA's division of the contigs among its threads, and
+starts each such pair from the value FastGA would have had. With this build
+the output is byte-identical to FastGA's in every configuration we ran:
+yeast7 at 1, 2, 4 and 8 ranks, primates4.chr6 at 4, 8 and 16,
+primates14.chr6 at 16, 32 and 64, and hsapiens90.chr6 at 32 and 64, one run
+each. A build of FastGA that prints the value confirms the reconstruction:
+all 1,202 values our code derives on the four datasets equal FastGA's. For
+11 further pairs FastGA reads a variable it has not set. It printed
+32,764 to 32,767 there for the first contig of a run and 0 otherwise, and
+we use 32,767 and 0.
+
+The change costs little time. In runs of one binary on the same day, with
+and without it, hsapiens90.chr6 took 301.5\,s against 296.1\,s with 32 ranks
+and 188.6\,s against 186.0\,s with 64, and primates14.chr6 took 1,188.3\,s
+against 1,180.4\,s with 64 (one run each; totals as the program reports
+them). All other times in this paper were measured before the change.
 
 \paragraph{Time.} DistributedPanGA takes 291.17\,s with 32 ranks and
 180.07\,s with 64, a speedup of 1.62 (Table~\ref{tab:pipeline},

@@ -89,22 +89,41 @@ Merge in order: #9 → #10 → #11 → this.
   extraction. Runs made before the fix need the post-processing correction.
   Fix is on branch `timing-barrier` (26b80da, not merged; also logs
   `extract_wait_s` per rank and keeps `extract_s` as the rank's own time).
-- **hsapiens90.chr6 at 64 ranks misses 1 of 1,375,248 alignments (found
-  2026-11-14, open):** reproducible (jobs 61244457, 61277456); 32 ranks match
-  exactly (61255434, 61277457); FastGA identical at -T16/-T32. Missing line:
-  same-strand self-alignment of `HG03453#2#JAGYVV010000063.1` (GDB contig
-  1072), a 6,419,539-6,423,436 vs b 6,419,557-6,423,438. `PGA_PAIR_TASKS`:
-  pair (1072,1072,N) has the same 229 seeds and 6 hits at 32 and 64 ranks,
-  but nlass 1 vs 0, so the difference is in alignment. Lead (not proven):
-  `align_contigs` (identical to upstream FastGA 178afcb apart from debug
-  code) handles a self-hit that straddles the main diagonal by setting only
-  `path->abpos = path->aepos = 0`; `bbpos/bepos` keep the previous pair's
-  values and feed `eant = aepos + bepos`, so later chains can be skipped.
-  Trace build on branch `trace-align` (`PGA_TRACE_ANCHOR=1072`, job 61278174)
-  shows the stale `b=87063320-87150831` from pair (1072,367). To prove: compare
-  with the 32-rank trace (61278175 was cancelled by the system; resubmitted as
-  61295918 on 2026-11-14, pending when this was written), then test the
-  one-line fix (also zero `bbpos/bepos`) at 32 and 64 ranks.
+- **hsapiens90.chr6 at 64 ranks missed 1 of 1,375,248 alignments (found
+  2026-11-14; fixed on branch `match-fastga-order`, 2026-11-16, not merged):**
+  - Cause (traced, jobs 61278174 / 61295918): `align_contigs`, identical to
+    FastGA 178afcb `FastGA.c:3257`, skips the aligner for a same-strand self
+    hit that straddles the main diagonal and zeroes only `abpos/aepos`; the
+    loop then reads `path->bepos` left by the previous real aligner call
+    (`eant = aepos + bepos`) and jumps if it exceeds the current position.
+    FastGA's pair order fixes that value; ours depended on rank ownership
+    (653 at 32 ranks, 87,150,831 at 64 for contig 1072).
+  - Fix chosen: reproduce FastGA's value (`src/fastga_order.c`,
+    `Self_Order` hooks in `src/fastga_pipeline.c`). FastGA order = contig
+    permutation in `<stem>.gix` (length-sorted), parts by length, thread
+    ranges by seed count (`PGA_FASTGA_THREADS`, default 32). Each
+    earlier-partner pair's final bepos is sent to the owner of the self pair;
+    self pairs wait only for the answers they need. `PGA_FASTGA_ORDER=0`
+    restores the old path. Needs `<stem>.gix`; adds an N*N byte map.
+  - Executed (jobs 61447693-61447707, one run each, final build 6032f52):
+    gold=MATCH on yeast7 (1,2,4,8 ranks), primates4 (4,8,16), primates14
+    (16,32,64), human (32,64). Same binary, feature on vs off: human 301.5 vs
+    296.1 s (32), 188.6 vs 186.0 s (64, off loses the alignment), primates14
+    64 ranks 1,188.3 vs 1,180.4 s. Values: all 1,202 derived entry values
+    equal those printed by a diagnostic FastGA (`~/pga-build/fastga-diag`,
+    jobs 61435904-61435906 and a login-node yeast7 run).
+  - Not derivable: where FastGA has no earlier call in a thread range it
+    reads an unset field (11 self pairs over the four datasets). Observed
+    32764-32767 for the first contig of the run, 0 elsewhere; we use 32767
+    (`PGA_FASTGA_UNSET_BEPOS`) and 0.
+  - Open: no unit tests for `fastga_order.c`; the self-depends-on-self round
+    never occurred in a test; the off path matched gold on yeast7 (1 process)
+    and on human 32 / primates14 64 only; three repeats of the headline
+    timings on this build; report to FastGA's authors. The alternative
+    one-line fix (zero `bbpos/bepos`) is on local branch `fix-self-straddle`:
+    it changes up to 0.053% of FastGA's own alignments, so it was not taken.
+  - User decides when to merge. Offline notes (not in git):
+    `notes/local/missing-alignment.pdf`, `replicating-fastga.pdf`.
 - **Report (2026-11-14, branch `report-human-merge`, not pushed):** human rows
   are now in the shared tables (`report/fig/table_{pipeline,fastga,perrank}.tex`,
   added by hand; Saksham's generator is not in the repo and would overwrite
