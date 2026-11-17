@@ -58,6 +58,28 @@ typedef struct {
 
 typedef void (*PairTaskHook)(const PairTaskRecord *rec);
 extern PairTaskHook Pair_Task_Hook;
+// --- FastGA-order emulation ---------------------------------------------------
+// FastGA's alignment loop skips the aligner for a same-strand self hit that
+// straddles the main diagonal and then reads path->bepos, which still holds the
+// end of the previous real aligner call. FastGA aligns pairs in a fixed order,
+// so that value is fixed there; here it would depend on which pairs this rank
+// owns. With Self_Order set, the same-strand pairs are aligned in three passes
+// (partner before the anchor in FastGA's contig order, partner after it, then
+// self pairs) and each self pair starts from the value FastGA would have had.
+// The hooks hold the cross-rank bookkeeping (src/fastga_order.c). NULL (the
+// default) keeps the single pass in sorted order. Requires NTHREADS == 1.
+typedef struct {
+    int  (*pair_class)(int a, int b);              // <0 partner before anchor, 0 self, >0 after
+    void (*record)(int a, int b, int calls, int bepos);  // after every same-strand pair
+    void (*pass1_done)(void);                      // partner-before pairs finished
+    void (*pass2_done)(void);                      // partner-after pairs finished
+    int  (*self_value)(int c, int *bepos);         // 1: entry value known; 0: defer the pair
+    void (*round_begin)(void);                     // deferred pairs: exchange what is known
+    int  (*resolve)(int c, int *bepos);            // 1: entry value known now; 0: wait a round
+    int  (*round_end)(int64_t remaining);          // 1 while any rank still has deferred pairs
+} SelfOrderHooks;
+extern SelfOrderHooks *Self_Order;
+
 // la_merge is internal to fastga_pipeline.c (called by pair_sort_search).
 
 #endif

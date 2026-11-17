@@ -222,6 +222,16 @@ static void maheap(int s, Overlap **heap, int hsize);
 PairSearchStats Pair_Search_Stats;
 PairTaskHook    Pair_Task_Hook = NULL;
 
+// FastGA-order emulation: see fastga_pipeline.h. Not part of upstream FastGA.
+// Single alignment thread only (NTHREADS == 1), so plain statics are enough.
+
+SelfOrderHooks *Self_Order = NULL;
+
+static int Self_Entry_Set   = 0;   // align_contigs: start a self pair from Self_Entry_Bepos
+static int Self_Entry_Bepos = 0;
+static int Pair_Calls       = 0;   // real Local_Alignment calls made by the last align_contigs
+static int Pair_Bepos       = 0;   // path->bepos when the last align_contigs returned
+
 static double pss_now(void)
 { struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC,&ts);
@@ -591,6 +601,9 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
   ctg1 = Perm1[ctg1];
   ctg2 = Perm2[ctg2];
 
+  Pair_Calls = 0;
+  Pair_Bepos = path->bepos;
+
   if (pair->gdb1->contigs[ctg1].boff < 0 || pair->gdb2->contigs[ctg2].boff < 0)
     return;
 
@@ -613,6 +626,10 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
     self = 1;
   else
     self = 0;
+
+  // FastGA-order emulation: the value FastGA's previous aligner call left.
+  if (self && Self_Entry_Set)
+    path->bepos = Self_Entry_Bepos;
 
   doffset = alen - MAXDAG;
   aoffset = alen - AMXPOS;
@@ -742,15 +759,21 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                             if (self)
                               { if (dgmin > 0)
                                   { if (Local_Alignment(align,work,spec,
-                                                        dgmin,dgmax,amid,dgmin-1,-1)) exit (1); }
+                                                        dgmin,dgmax,amid,dgmin-1,-1)) exit (1);
+                                    Pair_Calls += 1;
+                                  }
                                 else if (dgmax < 0)
                                   { if (Local_Alignment(align,work,spec,
-                                                        dgmin,dgmax,amid,-1,-(dgmax+1))) exit (1); }
+                                                        dgmin,dgmax,amid,-1,-(dgmax+1))) exit (1);
+                                    Pair_Calls += 1;
+                                  }
                                 else
                                   path->abpos = path->aepos = 0;
                               }
                             else
-                              { if (Local_Alignment(align,work,spec,dgmin,dgmax,amid,-1,-1)) exit(1); }
+                              { if (Local_Alignment(align,work,spec,dgmin,dgmax,amid,-1,-1)) exit(1);
+                                Pair_Calls += 1;
+                              }
 
                             rlen = path->aepos - path->abpos;
                             if (rlen >= alnMin && alnRate*rlen >= path->diffs)
@@ -964,6 +987,8 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
   pair->nlive += nliv;
   pair->nlcov += ncov;
   pair->nmemo += nmem;
+
+  Pair_Bepos = path->bepos;
 }
 
 static int ALIGN_SORT(const void *l, const void *r)
@@ -1106,6 +1131,200 @@ void *search_seeds(void *args)
   parm->nlcov += pair->nlcov;
   parm->nmemo += pair->nmemo;
   return (NULL);
+}
+
+// ============================================================================
+// FastGA-order emulation: same-strand pairs in three passes (fastga_pipeline.h)
+// ============================================================================
+
+typedef struct {
+    uint8 *b, *x;     // seeds of one (anchor, partner) pair: [b,x)
+    int    a;
+    int    j;
+} Seed_Group;
+
+typedef struct {
+    uint8 *seeds;     // private copy: the sort array is reused for the C seeds
+    int64  len;
+    int    c;
+    int    done;
+} Deferred_Self;
+
+static Contig_Bundle  Ordered_Bundle;
+static int            Ordered_Open  = 0;
+static int            Ordered_Swide = 0;
+static Deferred_Self *Deferred      = NULL;
+static int            NDeferred     = 0;
+
+static void ordered_run(uint8 *b, uint8 *x, int swide, int a, int j, int self, int bepos)
+{ if (self)
+    { Self_Entry_Set   = 1;
+      Self_Entry_Bepos = bepos;
+    }
+  timed_align_contigs(b,x,swide,a,j,&Ordered_Bundle,0);
+  Self_Entry_Set = 0;
+  Self_Order->record(a,j,Pair_Calls,Pair_Bepos);
+}
+
+static void search_seeds_ordered(TP *parm, int64 nels)
+{ int      swide  = parm->swide;
+  int64   *panel  = parm->panel;
+  Range   *range  = parm->range;
+  int      foffs  = swide-B_CONTIG_STRAND_BYTES;
+  Contig_Bundle *pair = &Ordered_Bundle;
+
+  Seed_Group *grp;
+  int64       ngrp, mgrp, g;
+  int         pass;
+
+  if (NTHREADS != 1)
+    { fprintf(stderr,"%s: FastGA-order emulation needs NTHREADS == 1\n",Prog_Name); exit (1); }
+
+  // Same bundle setup as search_seeds, kept open for the deferred self pairs.
+
+  bzero(pair,sizeof(Contig_Bundle));
+  pair->tid  = parm->tid;
+  pair->gdb1 = &(parm->gdb1);
+  pair->gdb2 = &(parm->gdb2);
+  pair->align.aseq = New_Contig_Buffer(pair->gdb1);
+  pair->align.bseq = New_Contig_Buffer(pair->gdb2);
+  if (pair->align.aseq == NULL || pair->align.bseq == NULL) exit (1);
+  pair->align.path = &(pair->ovl.path);
+  pair->ovl.flags   = 0;
+  pair->align.flags = 0;
+  pair->ovl.aread = -1;
+  pair->ovl.bread = -1;
+  pair->work = New_Work_Data();
+  pair->spec = New_Align_Spec(1.-ALIGN_RATE,100,pair->gdb1->freq,0);
+  if (pair->work == NULL || pair->spec == NULL) exit (1);
+  pair->ofile = parm->ofile;
+  pair->tfile = parm->tfile;
+  Ordered_Open  = 1;
+  Ordered_Swide = swide;
+
+  // Index the pairs once: runs of equal partner within each anchor's seeds.
+
+  ngrp = 0;
+  mgrp = 1024;
+  grp  = Malloc(mgrp*sizeof(Seed_Group),"Allocating pair index");
+  if (grp == NULL) exit (1);
+  if (nels > 0)
+    { int    icrnt;
+      int64  jcrnt;
+      uint8 *x, *e, *b;
+
+      x = parm->sarr + range->off;
+      for (icrnt = range->beg; icrnt < range->end; icrnt++)
+        { e = x + panel[icrnt];
+          while (x < e)
+            { jcrnt = 0;
+              memcpy(&jcrnt,x+foffs,B_CONTIG_STRAND_BYTES);
+              b = x;
+              for (x += swide; x < e; x += swide)
+                if (memcmp(&jcrnt,x+foffs,B_CONTIG_STRAND_BYTES))
+                  break;
+              if (ngrp >= mgrp)
+                { mgrp = 2*mgrp;
+                  grp  = Realloc(grp,mgrp*sizeof(Seed_Group),"Allocating pair index");
+                  if (grp == NULL) exit (1);
+                }
+              grp[ngrp].b = b;
+              grp[ngrp].x = x;
+              grp[ngrp].a = icrnt;
+              grp[ngrp].j = (int) jcrnt;
+              ngrp += 1;
+            }
+        }
+    }
+
+  // Pass 1: partner before the anchor.  Pass 2: partner after it.
+
+  for (pass = -1; pass <= 1; pass += 2)
+    { for (g = 0; g < ngrp; g++)
+        { int cls = Self_Order->pair_class(grp[g].a,grp[g].j);
+          if ((pass < 0 && cls < 0) || (pass > 0 && cls > 0))
+            ordered_run(grp[g].b,grp[g].x,swide,grp[g].a,grp[g].j,0,0);
+        }
+      if (pass < 0)
+        Self_Order->pass1_done();
+      else
+        Self_Order->pass2_done();
+    }
+
+  // Pass 3: self pairs whose entry value is known; the rest are set aside.
+
+  for (g = 0; g < ngrp; g++)
+    if (Self_Order->pair_class(grp[g].a,grp[g].j) == 0)
+      { int bepos;
+
+        if (Self_Order->self_value(grp[g].a,&bepos))
+          ordered_run(grp[g].b,grp[g].x,swide,grp[g].a,grp[g].j,1,bepos);
+        else
+          { Deferred_Self *d;
+            int64 len = grp[g].x - grp[g].b;
+
+            Deferred = Realloc(Deferred,(NDeferred+1)*sizeof(Deferred_Self),
+                               "Allocating deferred self pairs");
+            if (Deferred == NULL) exit (1);
+            d = Deferred + NDeferred++;
+            d->seeds = Malloc(len+swide,"Allocating deferred self pair");   // align_contigs
+            if (d->seeds == NULL) exit (1);                                 // peeks one record on
+            memcpy(d->seeds,grp[g].b,len);
+            bzero(d->seeds+len,swide);
+            d->len  = len;
+            d->c    = grp[g].a;
+            d->done = 0;
+          }
+      }
+
+  free(grp);
+}
+
+// Self pairs whose value comes from another contig's last call: resolved in
+// rounds once every rank has finished its other same-strand pairs.
+
+static void finish_deferred_self(TP *parm)
+{ Contig_Bundle *pair = &Ordered_Bundle;
+  int64 remaining;
+  int   d, more;
+
+  if (!Ordered_Open)
+    return;
+
+  remaining = NDeferred;
+  do
+    { Self_Order->round_begin();
+      for (d = 0; d < NDeferred; d++)
+        if (!Deferred[d].done)
+          { int bepos;
+
+            if (Self_Order->resolve(Deferred[d].c,&bepos))
+              { ordered_run(Deferred[d].seeds,Deferred[d].seeds+Deferred[d].len,Ordered_Swide,
+                            Deferred[d].c,Deferred[d].c,1,bepos);
+                Deferred[d].done = 1;
+                free(Deferred[d].seeds);
+                remaining -= 1;
+              }
+          }
+      more = Self_Order->round_end(remaining);
+    }
+  while (more);
+
+  free(Deferred);
+  Deferred  = NULL;
+  NDeferred = 0;
+
+  Free_Align_Spec(pair->spec);
+  Free_Work_Data(pair->work);
+  free(pair->align.aseq-1);
+  free(pair->align.bseq-1);
+
+  parm->nhits += pair->nhits;
+  parm->nlass += pair->nlass;
+  parm->nlive += pair->nlive;
+  parm->nlcov += pair->nlcov;
+  parm->nmemo += pair->nmemo;
+  Ordered_Open = 0;
 }
 
 // ============================================================================
@@ -1553,12 +1772,22 @@ void pair_sort_search(GDB *gdb1, GDB *gdb2)
         }
       t0 = pss_now();
       for (p = 0; p < nused; p++) tarm[p].comp = u;
-      for (p = 1; p < nused; p++)
-        pthread_create(threads+p,NULL,search_seeds,tarm+p);
-      search_seeds(tarm);
-      for (p = 1; p < nused; p++)
-        pthread_join(threads[p],NULL);
+      if (Self_Order != NULL && u == 0)
+        search_seeds_ordered(tarm,nels);
+      else
+        { for (p = 1; p < nused; p++)
+            pthread_create(threads+p,NULL,search_seeds,tarm+p);
+          search_seeds(tarm);
+          for (p = 1; p < nused; p++)
+            pthread_join(threads[p],NULL);
+        }
       Pair_Search_Stats.search_s[u] += pss_now()-t0;
+    }
+
+  if (Self_Order != NULL)
+    { t0 = pss_now();
+      finish_deferred_self(tarm);
+      Pair_Search_Stats.search_s[0] += pss_now()-t0;
     }
 
   free(panel);

@@ -41,6 +41,7 @@
 #include "alncode.h"
 #include "gene_core.h"
 #include "fastga_pipeline.h"
+#include "fastga_order.h"
 #include "contig_assignment.h"
 #include "seed_exchange.h"
 #include "chunked_exchange.h"
@@ -571,9 +572,17 @@ int main(int argc, char *argv[])
             fprintf(stderr, "rank %d: cannot open %s; per-task records disabled\n",
                     my_rank, task_path);
     }
+    // Start each same-strand self pair from the value FastGA's alignment loop
+    // would have had (src/fastga_order.c), so the output does not depend on
+    // the rank count. PGA_FASTGA_ORDER=0 turns it off.
+    const char *fo_env = getenv("PGA_FASTGA_ORDER");
+    if (fo_env == NULL || strcmp(fo_env, "0") != 0)
+        fastga_order_setup(gdb_stem, gdb, (const int64_t *) N_Units[0].buck,
+                           2 * DBYTE + B_CONTIG_STRAND_BYTES + 2, MPI_COMM_WORLD);
     t0 = now_s();
     pair_sort_search(gdb, gdb);
     double t_pair_search = now_s() - t0;
+    fastga_order_report();
     Pair_Task_Hook = NULL;
     if (Pair_Task_File != NULL) fclose(Pair_Task_File);
     mem_stage_end(MEM_ALIGN);
