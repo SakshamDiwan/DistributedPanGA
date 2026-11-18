@@ -43,12 +43,11 @@
 // datasets. We use PGA_FASTGA_UNSET_BEPOS (default 32767) and 0.
 
 #include "fastga_order.h"
+#include "fastga_order_core.h"
 
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 #define MSG_TAG 7701
 
@@ -79,27 +78,14 @@ static struct {
 
 static SelfOrderHooks Hooks;
 
-static int64_t make_key(int pos_b, int bepos)
-{ return (((int64_t) (pos_b+1)) << 32) | (uint32_t) bepos; }
-
-static int key_pos(int64_t key)   { return (int) (key >> 32) - 1; }
-static int key_bepos(int64_t key) { return (int) (key & 0xffffffffll); }
-
-// Nearness of earlier partner xb to xa: how many earlier partners with seeds
-// lie between them. 0 = the nearest.
+// Nearness of earlier partner xb to xa (0 = the nearest).
 static int nearness(int xa, int xb)
-{ const uint8_t *row = Has + (int64_t) xa*N;
-  int y, k = 0;
-
-  for (y = xb+1; y < xa; y++)
-    k += row[y];
-  return k;
-}
+{ return fo_nearness(Has,N,xa,xb); }
 
 static void store_answer(int xa, int k, int called, int bepos)
 { Got += 1;
   if (Answer[xa] != NULL)
-    Answer[xa][k] = called ? bepos : -2;
+    Answer[xa][k] = called ? bepos : FO_ANSWER_NOCALL;
 }
 
 static void receive_one(MPI_Status *st)
@@ -109,37 +95,23 @@ static void receive_one(MPI_Status *st)
   store_answer(msg[0],msg[1],msg[2],msg[3]);
 }
 
-// The entry value of self pair c from the answers so far.
-//   1  known (*bepos set)      0  an answer it needs has not arrived
-//  -1  no earlier partner made a call and c is not first in its FastGA range:
-//      the value comes from an earlier contig's row (final rounds)
+// The entry value of self pair c from the answers so far: fo_from_answers,
+// with logging. 1 known, 0 an answer has not arrived, -1 needs earlier rows.
 static int from_answers(int c, int *bepos, const char *how)
 { int x = Pos_Of[c];
-  int k;
+  int k, r;
 
-  for (k = 0; k < NNear[x]; k++)
-    { int a = Answer[x][k];
-      if (a == -1)
-        return 0;
-      if (a >= 0)
-        { *bepos = a;
-          if (Log_Values)
-            { int y, j = k;                 // the k-th nearest earlier partner
-              for (y = x-1; y >= 0; y--)
-                if (Has[(int64_t) x*N+y] && j-- == 0)
-                  break;
-              fprintf(stderr,"[fga-self] contig=%d pos=%d bepos=%d from=partner:%d nearness=%d %s\n",
-                      c,x,*bepos,Contig_At[y],k,how);
-            }
-          return 1;
-        }
+  r = fo_from_answers(Answer[x],NNear[x],x,Range_Start[x],Unset_Main,bepos,&k);
+  if (r != 1)
+    return r;
+  if (k < 0)
+    { St.unset += 1;
+      fprintf(stderr,"[fga-self] contig=%d pos=%d bepos=%d from=unset (first call of the FastGA "
+                     "range starting at pos %d) %s\n",c,x,*bepos,x,how);
     }
-  if (Range_Start[x] != x)
-    return -1;
-  *bepos = (x == 0) ? Unset_Main : 0;
-  St.unset += 1;
-  fprintf(stderr,"[fga-self] contig=%d pos=%d bepos=%d from=unset (first call of the FastGA "
-                 "range starting at pos %d) %s\n",c,x,*bepos,x,how);
+  else if (Log_Values)
+    fprintf(stderr,"[fga-self] contig=%d pos=%d bepos=%d from=partner:%d nearness=%d %s\n",
+            c,x,*bepos,Contig_At[fo_kth_earlier(Has,N,x,k)],k,how);
   return 1;
 }
 
@@ -181,11 +153,11 @@ static void h_record(int a, int b, int calls, int bepos)
 { int xa = Pos_Of[a];
 
   if (a == b)
-    { S_loc[xa] = (calls > 0) ? 3 + (int64_t) bepos : 2;
+    { S_loc[xa] = (calls > 0) ? FO_S_CALLED + (int64_t) bepos : FO_S_NOCALL;
       return;
     }
   if (calls > 0)
-    { int64_t key = make_key(Pos_Of[b],bepos);
+    { int64_t key = fo_make_key(Pos_Of[b],bepos);
       if (key > L_loc[xa]) L_loc[xa] = key;
     }
   if (Pos_Of[b] < xa)
@@ -203,7 +175,7 @@ static void h_record(int a, int b, int calls, int bepos)
 }
 
 static int h_self_value(int c, int *bepos)
-{ S_loc[Pos_Of[c]] = 1;
+{ S_loc[Pos_Of[c]] = FO_S_PENDING;
   drain();
   if (from_answers(c,bepos,"(in order)") == 1)
     { St.direct += 1;
@@ -253,38 +225,27 @@ static void h_round_begin(void)
 // there is one, else the self pair's, else a partner before y.
 static int h_resolve(int c, int *bepos)
 { int x = Pos_Of[c];
-  int y, r;
+  int r;
 
   r = from_answers(c,bepos,"(final)");
   if (r == 1) { St.late += 1; return 1; }
   if (r == 0) return 0;
 
-  for (y = x-1; y >= Range_Start[x]; y--)
-    { int64_t k = L_glob[y];
-      int64_t s = S_glob[y];
-      int     from = -1;
+  { int row, from;
 
-      if (k != 0 && key_pos(k) > y)
-        { *bepos = key_bepos(k); from = Contig_At[key_pos(k)]; }
-      else if (s == 1)
-        return 0;                       // that self pair has not run yet
-      else if (s >= 3)
-        { *bepos = (int) (s-3); from = Contig_At[y]; }
-      else if (k != 0)
-        { *bepos = key_bepos(k); from = Contig_At[key_pos(k)]; }
-      else
-        continue;
-
-      St.fallback += 1;
-      fprintf(stderr,"[fga-self] contig=%d pos=%d bepos=%d from=row:%d,%d\n",
-              c,x,*bepos,Contig_At[y],from);
-      return 1;
-    }
-
-  *bepos = (Range_Start[x] == 0) ? Unset_Main : 0;
-  St.unset += 1;
-  fprintf(stderr,"[fga-self] contig=%d pos=%d bepos=%d from=unset (first call of the FastGA "
-                 "range starting at pos %d)\n",c,x,*bepos,Range_Start[x]);
+    if (!fo_from_rows(L_glob,S_glob,x,Range_Start[x],Unset_Main,bepos,&row,&from))
+      return 0;                         // a self pair it depends on has not run yet
+    if (row < 0)
+      { St.unset += 1;
+        fprintf(stderr,"[fga-self] contig=%d pos=%d bepos=%d from=unset (first call of the FastGA "
+                       "range starting at pos %d)\n",c,x,*bepos,Range_Start[x]);
+      }
+    else
+      { St.fallback += 1;
+        fprintf(stderr,"[fga-self] contig=%d pos=%d bepos=%d from=row:%d,%d\n",
+                c,x,*bepos,Contig_At[row],Contig_At[from]);
+      }
+  }
   return 1;
 }
 
@@ -306,112 +267,6 @@ static int h_round_end(int64_t remaining)
 
 // --- setup -------------------------------------------------------------------
 
-// The contig permutation in the .gix stub (layout: FastGA.c Open_Post_List).
-static int read_gix_perm(const char *stem, int n, int *perm)
-{ char    path[4096];
-  int     f, pbyte, cbyte, nfile, freq, nctg, i, ok;
-  int64_t maxp;
-  char   *seen;
-
-  snprintf(path,sizeof(path),"%s.gix",stem);
-  f = open(path,O_RDONLY);
-  if (f < 0)
-    { fprintf(stderr,"[fga-order] cannot open %s\n",path); return 0; }
-  ok = (lseek(f,4*sizeof(int)+0x1000000*sizeof(int64_t),SEEK_SET) >= 0);
-  ok = ok && read(f,&pbyte,sizeof(int)) == sizeof(int);
-  ok = ok && read(f,&cbyte,sizeof(int)) == sizeof(int);
-  ok = ok && read(f,&nfile,sizeof(int)) == sizeof(int);
-  ok = ok && read(f,&maxp,sizeof(int64_t)) == sizeof(int64_t);
-  ok = ok && read(f,&freq,sizeof(int)) == sizeof(int);
-  ok = ok && read(f,&nctg,sizeof(int)) == sizeof(int);
-  if (!ok || nctg != n)
-    { fprintf(stderr,"[fga-order] %s: unexpected header (contigs %d, GDB has %d)\n",
-              path,ok ? nctg : -1,n);
-      close(f);
-      return 0;
-    }
-  ok = (read(f,perm,sizeof(int)*(size_t) n) == (ssize_t) (sizeof(int)*(size_t) n));
-  close(f);
-  if (!ok)
-    { fprintf(stderr,"[fga-order] %s: short read of the contig order\n",path); return 0; }
-  seen = calloc(n,1);
-  for (i = 0; i < n; i++)
-    { if (perm[i] < 0 || perm[i] >= n || seen[perm[i]])
-        { fprintf(stderr,"[fga-order] %s: contig order is not a permutation\n",path);
-          free(seen);
-          return 0;
-        }
-      seen[perm[i]] = 1;
-    }
-  free(seen);
-  return 1;
-}
-
-// FastGA's parts (FastGA.c, "Compute GDB split into NTHREADS parts") and, in
-// each part, rmsd_sort's thread ranges over the per-anchor seed bytes.
-static int compute_ranges(GDB *gdb, const int64_t *count, int swide, int T, int *nrange_out)
-{ int     *split = malloc((T+1)*sizeof(int));
-  int64_t  npost, cum, t;
-  int      p, r, x, i, nparts, nrange;
-
-  npost = gdb->seqtot;
-  split[0] = 0;
-  p = 0;
-  r = T;
-  t = npost/T;
-  cum = gdb->contigs[Contig_At[0]].clen;
-  for (x = 1; x < N; x++)
-    { if (cum >= t && x >= r)
-        { p += 1;
-          split[p] = x;
-          t = (npost*(p+1))/T;
-          r += T;
-        }
-      cum += gdb->contigs[Contig_At[x]].clen;
-    }
-  nparts = p+1;
-  split[nparts] = N;
-
-  for (x = 0; x < N; x++)
-    Range_Start[x] = x;
-
-  nrange = 0;
-  for (i = 0; i < nparts; i++)
-    { int64_t asize, thr, sum;
-      int     n, beg, y;
-
-      asize = 0;
-      for (x = split[i]; x < split[i+1]; x++)
-        asize += count[Contig_At[x]]*swide;
-      if (asize == 0) continue;
-
-      n   = 0;
-      thr = asize/T;
-      sum = 0;
-      for (x = split[i]; x < split[i+1]; x++)
-        if (count[Contig_At[x]] > 0)
-          break;
-      beg = x;
-      for ( ; x < split[i+1]; x++)
-        if (count[Contig_At[x]] > 0)
-          { sum += count[Contig_At[x]]*swide;
-            if (sum >= thr)
-              { for (y = beg; y <= x; y++)
-                  Range_Start[y] = beg;
-                if (Log_Values && My_Rank == 0)
-                  fprintf(stderr,"[fga-range] beg=%d end=%d\n",beg,x+1);
-                n  += 1;
-                thr = (asize*(n+1))/T;
-                beg = x+1;
-              }
-          }
-      nrange += n;
-    }
-  free(split);
-  *nrange_out = nrange;
-  return nparts;
-}
-
 static int64_t read_field(const uint8_t *p, int nbytes)
 { int64_t v = 0;
   memcpy(&v,p,nbytes);
@@ -432,7 +287,11 @@ int fastga_order_setup(const char *gdb_stem, GDB *gdb, const int64_t *n_seed_cou
   Contig_At = malloc(N*sizeof(int));
   ok = 0;
   if (My_Rank == 0)
-    ok = read_gix_perm(gdb_stem,N,Contig_At);
+    { char err[4200];
+      ok = fo_read_gix_perm(gdb_stem,N,Contig_At,err,sizeof(err));
+      if (!ok)
+        fprintf(stderr,"[fga-order] %s\n",err);
+    }
   MPI_Bcast(&ok,1,MPI_INT,0,comm);
   if (!ok)
     { if (My_Rank == 0)
@@ -457,7 +316,21 @@ int fastga_order_setup(const char *gdb_stem, GDB *gdb, const int64_t *n_seed_cou
 
   gcount = malloc(N*sizeof(int64_t));
   MPI_Allreduce(n_seed_count,gcount,N,MPI_INT64_T,MPI_SUM,comm);
-  nparts = compute_ranges(gdb,gcount,swide,T,&nrange);
+  { int64_t *clen_pos  = malloc(N*sizeof(int64_t));
+    int64_t *seeds_pos = malloc(N*sizeof(int64_t));
+    int     *rb        = malloc(N*sizeof(int));
+    int     *re        = malloc(N*sizeof(int));
+
+    for (i = 0; i < N; i++)
+      { clen_pos[i]  = gdb->contigs[Contig_At[i]].clen;
+        seeds_pos[i] = gcount[Contig_At[i]];
+      }
+    nrange = fo_compute_ranges(N,clen_pos,gdb->seqtot,seeds_pos,swide,T,Range_Start,rb,re,&nparts);
+    if (Log_Values && My_Rank == 0)
+      for (i = 0; i < nrange; i++)
+        fprintf(stderr,"[fga-range] beg=%d end=%d\n",rb[i],re[i]);
+    free(clen_pos); free(seeds_pos); free(rb); free(re);
+  }
   free(gcount);
 
   // Which pairs (x,b), b before x, have same-strand seeds: one scan of this
@@ -497,17 +370,16 @@ int fastga_order_setup(const char *gdb_stem, GDB *gdb, const int64_t *n_seed_cou
   NNear  = calloc(N,sizeof(int));
   Expect = Got = 0;
   for (i = 0; i < N; i++)
-    { int c = Contig_At[i], y, k;
+    { int c = Contig_At[i], k;
 
       Clen[i] = gdb->contigs[c].clen;
-      for (y = 0; y < i; y++)
-        NNear[i] += Has[(int64_t) i*N+y];
+      NNear[i] = fo_count_earlier(Has,N,i);
       if (rank_for_pair[(int64_t) c*N + c] != My_Rank)
         continue;
       Expect += NNear[i];
       Answer[i] = malloc((NNear[i]+1)*sizeof(int));
       for (k = 0; k < NNear[i]; k++)
-        Answer[i][k] = -1;
+        Answer[i][k] = FO_ANSWER_UNKNOWN;
     }
 
   L_loc   = calloc(N,sizeof(int64_t));

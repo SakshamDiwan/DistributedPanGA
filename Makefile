@@ -47,7 +47,7 @@ pga-mpi: $(PHASE3_SRCS) $(LIB_SRCS)
 # (dsort.c), the k-mer adapter and the lifted FastGA pipeline.
 PHASE4B_SRCS = src/pga-mpi-merge.c $(CORE_SRCS) src/sort.c src/dsort.c src/chunked_exchange.c \
                src/kmer_adapter.c src/fastga_pipeline.c src/contig_assignment.c \
-               src/seed_exchange.c src/run_cmd.c src/seed_buffer.c src/fastga_order.c
+               src/seed_exchange.c src/run_cmd.c src/seed_buffer.c src/fastga_order.c src/fastga_order_core.c
 pga-mpi-merge: $(PHASE4B_SRCS) $(LIB_SRCS)
 	$(CC) $(CFLAGS) -o pga-mpi-merge $(PHASE4B_SRCS) $(LIB_SRCS) $(LIBS)
 
@@ -123,7 +123,7 @@ test-record-split:
 
 test: test-record-split test-extract test-extract-window test-lcp-sort \
       test-dsort test-assign test-adapter test-exchange-plan test-run-cmd \
-      test-chunked-exchange
+      test-chunked-exchange test-fastga-order
 
 # Slow paths (production allocation growth) plus the sanitizers.
 test-asan:
@@ -144,6 +144,10 @@ test-asan:
 	    -o tests/bin/test_chunked_exchange_asan tests/unit/test_chunked_exchange.c \
 	    tests/support/check.c src/chunked_exchange.c $(LIBS) $$(cc --cray-print-opts=all 2>/dev/null)
 	tests/bin/test_chunked_exchange_asan
+	gcc $(TEST_CFLAGS) -fsanitize=address,undefined -O1 -g \
+	    -o tests/bin/test_fastga_order_asan tests/unit/test_fastga_order.c \
+	    tests/support/check.c src/fastga_order_core.c $(LIBS)
+	tests/bin/test_fastga_order_asan
 
 test-clean:
 	rm -rf tests/bin
@@ -156,6 +160,13 @@ test-dsort:
 	    $(TEST_SUPPORT) src/dsort.c src/chunked_exchange.c src/sort.c $(TEST_EXSRCS) $(TEST_GDBLIB) \
 	    lib/MSDsort.c $(LIBS)
 	tests/bin/test_dsort
+
+# FastGA-order rules (fastga_order_core.c): MPI-free, one process.
+test-fastga-order:
+	@mkdir -p tests/bin
+	gcc $(TEST_CFLAGS) -o tests/bin/test_fastga_order tests/unit/test_fastga_order.c \
+	    tests/support/check.c src/fastga_order_core.c $(LIBS)
+	tests/bin/test_fastga_order
 
 test-assign:
 	@mkdir -p tests/bin
