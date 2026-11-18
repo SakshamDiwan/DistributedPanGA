@@ -1,6 +1,6 @@
 # State / handoff
 
-Last updated: 2026-11-17 (branch `reproduce-fastga-order`, PR #19, draft).
+Last updated: 2026-11-18 (branch `reproduce-fastga-order`, PR #19, draft).
 
 ## Current objective
 
@@ -142,8 +142,27 @@ Merge in order: #9 → #10 → #11 → this.
     reads an unset field (11 self pairs over the four datasets). Observed
     32764-32767 for the first contig of the run, 0 elsewhere; we use 32767
     (`PGA_FASTGA_UNSET_BEPOS`) and 0.
-  - Open: no unit tests for `fastga_order.c`; the self-depends-on-self round
-    never occurred in a test; the off path matched gold on yeast7 (1 process)
+  - Unit tests (2026-11-18): `make test-fastga-order` (F-01..F-06,
+    `tests/unit/test_fastga_order.c`) on the MPI-free core
+    `src/fastga_order_core.c`; ranges against a verbatim copy of FastGA's
+    loops, all rules against a sequential model of FastGA incl. self pairs
+    depending on self pairs (up to 11 rounds). Nine mutations all caught.
+    Full `make test` passes. The MPI messaging/scheduling is still covered
+    only end to end.
+  - Load balancing (O3), replay of recorded per-pair times
+    (`scripts/simulate_pair_schedule.py`, records of jobs 59717520 and
+    61277456): with the current length-product assignment the order costs
+    0%. With a cost-based assignment it costs 28% on primates14 at 16 ranks
+    (contig 0 is short but its self pair is the most expensive, 773 s, and its
+    0.008 s prerequisite runs late on another rank); ordering equally near
+    earlier partners by fewest seeds first removes that (0% everywhere
+    tested). A dynamic queue costs up to 69% unless prerequisites of
+    expensive self pairs get priority, then 0%. Human: 0% for every static
+    variant, up to 24% for the dynamic queue without priority. Splitting a
+    self pair along diagonals: only the chunk containing the main diagonal
+    reads the leftover (code reading, not tested).
+  - Open: the self-depends-on-self round
+    never occurred in a dataset run; the off path matched gold on yeast7 (1 process)
     and on human 32 / primates14 64 only; three repeats of the headline
     timings on this build; report to FastGA's authors. The alternative
     one-line fix (zero `bbpos/bepos`) is on local branch `fix-self-straddle`:
