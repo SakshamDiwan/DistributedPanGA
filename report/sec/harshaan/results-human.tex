@@ -7,26 +7,24 @@ alignments and links every one of the 4,005 pairs of haplotypes. Its rows in
 Tables~\ref{tab:pipeline}, \ref{tab:perrank} and~\ref{tab:fastga} and its panels in
 Figs.~\ref{fig:strong} and~\ref{fig:fastga} differ from the other datasets
 in three ways. DistributedPanGA ran with 32 and 64 ranks, both on four
-nodes, so the rank count changes but the node count does not. Each of these
-ran twice, with totals within 1\%, and we report the first run. FastGA ran
+nodes, so the rank count changes but the node count does not. FastGA ran
 once with 16 threads and once with 32, both on one index built with 16
 threads, because \texttt{GIXmake} crashes with 32 threads on this input.
 
-\paragraph{Correctness.} With 32 ranks, both runs are byte-identical to
-FastGA's sorted output. FastGA's output is the same at 16 and 32 threads.
-With 64 ranks, both runs miss the same single alignment, a same-strand
-self-alignment of one contig over about 3.9\,kbp; every other line matches.
-We hypothesize an edge case in our pipeline or in FastGA and will investigate it.
-
-\paragraph{Time.} DistributedPanGA takes 291.17\,s with 32 ranks and
-180.07\,s with 64, a speedup of 1.62 (Table~\ref{tab:pipeline},
+\paragraph{Time.} DistributedPanGA takes 298.34\,s with 32 ranks and
+183.85\,s with 64, a speedup of 1.62 (Table~\ref{tab:pipeline},
 Fig.~\ref{fig:strong}e). FastGA takes 1,480.42\,s with 16 threads and
 1,736.93\,s with 32 (Table~\ref{tab:fastga}). Against FastGA's fastest
-measured run, DistributedPanGA is 5.1$\times$ faster with 32 ranks and
-8.2$\times$ faster with 64; at 32 ranks against 32 threads it is
-6.0$\times$ faster (Fig.~\ref{fig:fastga}). These ratios compare four nodes
+measured run, DistributedPanGA is 5.0$\times$ faster with 32 ranks and
+8.1$\times$ faster with 64; at 32 ranks against 32 threads it is
+5.8$\times$ faster (Fig.~\ref{fig:fastga}). These ratios compare four nodes
 with one, and only the 32-rank and 32-thread runs use the same number of
-cores. Alignment is 84--87\% of DistributedPanGA's total and the sort
-8--10\%, its largest share on any dataset. The slowest rank's alignment
-time is 1.32 times the average at 32 ranks and 1.49 at 64
+cores. Alignment is 86--87\% of DistributedPanGA's total and the sort
+7--9\%, its largest share on any dataset. The slowest rank's alignment
+time is 1.30 times the average at 32 ranks and 1.43 at 64
 (Table~\ref{tab:perrank}).
+
+\paragraph{Correctness.} All six runs, three with 32 ranks and three with
+64, are byte-identical to FastGA's sorted output, as are all yeast and
+primate runs (Section~\ref{sec:results:small}). FastGA's own output is the
+same at 16 and 32 threads.

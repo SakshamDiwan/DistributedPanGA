@@ -25,6 +25,7 @@ Current results live in `tests/RESULTS.md`. Summary: **42,471 checks,
 | Pair assignment | A-01…A-05 | `test_assign` | done, passing |
 | Adapter | K-01…K-05 | `test_adapter` | done, passing |
 | Real MPI | M-01…M-06 | `test_stage2` | written; needs an allocation (world=1 smoke-tested) |
+| FastGA order | F-01…F-06 | `test_fastga_order` | done, passing |
 | Regression | R-02 | `test_exchange_plan` | **fixed**, markers removed |
 | Regression | R-05 | `test_run_cmd` | **fixed**, passing |
 | Regression | R-06 | `test_chunked_exchange`, `test_chunked_mpi` (MPI tier) | **fixed**, passing |
@@ -226,6 +227,25 @@ few.
   stream is `csuf == NULL && cpre == ixlen`.
 - **K-05** clone shares `table`/`index` pointers, advancing it doesn't move the
   parent, free clone then parent → no leak or double-free (ASan).
+
+## P4b · FastGA order of self pairs
+
+`src/fastga_order_core.c`, the MPI-free rules that give each same-strand self
+pair the `bepos` FastGA's own pair order leaves (`src/fastga_order.c`).
+
+| ID | Checks |
+|---|---|
+| F-01 | `.gix` reader: header layout (sparse file), wrong contig count, repeated contig, missing file |
+| F-02 | parts and thread ranges equal a verbatim copy of FastGA's loops (`FastGA.c` main, `RSDsort.c` `rmsd_sort`) on 3,000 random inputs, including contigs without seeds |
+| F-03 | nearness helpers |
+| F-04 | answers: waiting, known, unset at the run's first range (32767) and at other ranges (0), "needs earlier rows", and bepos 0 as a real value |
+| F-05 | all rules against a sequential model of FastGA's walk on 4,000 random worlds (~41,500 self pairs); asserts every rule is reached, including self pairs that depend on other self pairs |
+| F-06 | a chain of k dependent self pairs resolves in exactly k rounds (k = 1..12) |
+
+Each check was confirmed to fail on a deliberately broken core (nine
+mutations, 2026-11-18). Not covered here: the MPI messaging and scheduling
+in `fastga_order.c` and `fastga_pipeline.c`, which are checked end to end
+against the gold (`jobs/human/submit_overnight.sh`).
 
 ## P5 · Real MPI (not started)
 

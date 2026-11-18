@@ -13,9 +13,12 @@ work can use more than one machine. The result is only useful if it is exactly F
 so we require byte-identical output.
 
 This paper presents DistributedPanGA, an MPI version of FastGA's
-self-alignment, and evaluates it on four pangenomes. Its output matches
-FastGA's on every yeast and primate run, and with the same number of cores
-it runs up to 1.9$\times$ faster. On 90 human chromosome-6 haplotypes
-(15.5\,Gbp), 32 ranks on four nodes reproduce FastGA's output exactly and
-are 5.1$\times$ faster than FastGA's fastest measured one-node run; 64 ranks
-are 8.2$\times$ faster but miss one of 1,375,248 alignments.
+self-alignment, and evaluates it on four pangenomes. Its output is
+byte-identical to FastGA's in every run. On 90 human chromosome-6
+haplotypes (15.5\,Gbp), 64 ranks on four nodes are 8.1$\times$ faster than
+FastGA's fastest measured one-node run and 32 ranks 5.0$\times$ faster; on
+the yeast and primate pangenomes, with the same number of cores, it runs up
+to 2.1$\times$ faster. Exact output needs more than distributing FastGA's
+data: when FastGA aligns a contig with itself, the result depends on the
+order in which it aligns its pairs, and DistributedPanGA reconstructs that
+order across ranks (Section~\ref{sec:impl:order}).

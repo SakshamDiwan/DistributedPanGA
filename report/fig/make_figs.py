@@ -11,8 +11,9 @@ Writes into this directory:
   strong_scaling.pdf, vs_fastga.pdf   drawn by make_report_figs.py from the
                                       three table files, all four datasets
 
-The hsapiens90.chr6 rows are not in results.tsv; they are kept in HUMAN
-below and appended to the tables.
+FastGA's hsapiens90.chr6 rows are not in fastga.tsv; they are kept in HUMAN
+below and appended to that table. Without a fastga.tsv the FastGA table is
+left as it is.
 
 Each configuration is represented by its median run: the run whose total
 time is the median of the repeats (lower middle for an even count). All
@@ -33,26 +34,17 @@ DATASETS = [  # name in tsv, label used in the report
     ("yeast7", "yeast7"),
     ("primates4", "primates4.chr6"),
     ("primates14", "primates14.chr6"),
+    ("hsapiens90", "hsapiens90.chr6"),
 ]
 
-# hsapiens90.chr6 was run by separate jobs (jobs/human/) that do not write
-# results.tsv, so its rows are kept here and appended to each table.
-# One run per configuration; the job IDs are in the comment lines.
+# FastGA on hsapiens90.chr6 was run by separate jobs (jobs/human/) that do
+# not write fastga.tsv, so those rows are kept here and appended to the
+# FastGA table. One run per configuration; the job IDs are in the comment.
 HUMAN = {
-    "table_pipeline.tex": [
-        "% hsapiens90 rows: added by hand from jobs 61255434 / 61244457 (first of two runs each).\n",
-        "hsapiens90.chr6 & 4 & 32 & 9.86 & 22.65 & 6.46 & 252.20 & 291.17 \\\\\n",
-        "hsapiens90.chr6 & 4 & 64 & 6.13 & 18.16 & 3.85 & 151.92 & 180.07 \\\\\n",
-    ],
     "table_fastga.tex": [
         "% hsapiens90 rows: added by hand from jobs 61244453 (GIXmake -T16), 61255430, 61244455 (one run each).\n",
         "hsapiens90.chr6 & 16 & 400.39 & 1,069.81 & 10.22 & 1,480.42 \\\\\n",
         "hsapiens90.chr6 & 32 & 400.39 & 1,330.71 & 5.83 & 1,736.93 \\\\\n",
-    ],
-    "table_perrank.tex": [
-        "% hsapiens90 rows: added by hand from the per-rank search times of jobs 61255434 / 61244457.\n",
-        "hsapiens90.chr6 & 4 & 32 & 247.77 & 187.12 & 154.61 & 1.32 \\\\\n",
-        "hsapiens90.chr6 & 4 & 64 & 149.52 & 100.47 & 81.26 & 1.49 \\\\\n",
     ],
 }
 
@@ -176,20 +168,34 @@ for k in sorted(F, key=lambda k: (ORDER.get(k[0], 9), k[1])):
     cells = [fmt(float(mr[c])) for c in
              ("gixmake_s", "fastga_s", "alntopaf_s", "total_s")]
     rows.append(f"{LABEL.get(ds, ds)} & {t} & " + " & ".join(cells) + " \\\\\n")
-write_table("table_fastga.tex", rows)
+if F:
+    write_table("table_fastga.tex", rows)
+else:
+    print("no fastga.tsv: table_fastga.tex left unchanged")
 
 def per_rank_align(row):
     """alignment time (search_n_s + search_c_s) of every rank in one run,
     read from that run's merge.err ([pr1] lines)."""
     d = os.path.join(SRC, row["dataset"], f"n{row['nodes']}-r{row['ranks']}",
                      f"rep{row['rep']}", "merge.err")
-    t = []
+    t = {}
+    wait = {}
     with open(d) as f:
         for line in f:
-            if line.startswith("[pr1] rank"):
-                kv = dict(x.split("=", 1) for x in line.split() if "=" in x)
-                t.append(float(kv["search_n_s"]) + float(kv["search_c_s"]))
-    return t
+            # other output can share the line, so search instead of startswith
+            i = line.find("[pr1] rank")
+            if i >= 0:
+                r = int(line[i:].split()[2].rstrip(":"))
+                kv = dict(x.split("=", 1) for x in line[i:].split() if "=" in x)
+                t[r] = float(kv["search_n_s"]) + float(kv["search_c_s"])
+            # Time a rank spent blocked on other ranks while its self pairs
+            # waited for their entry values (src/fastga_order.c) is not work.
+            i = line.find("[fga-order] rank")
+            if i >= 0:
+                r = int(line[i:].split()[2].rstrip(":"))
+                kv = dict(x.split("=", 1) for x in line[i:].split() if "=" in x)
+                wait[r] = float(kv.get("wait_s", 0)) + float(kv.get("rounds_s", 0))
+    return [t[r] - wait.get(r, 0.0) for r in sorted(t)]
 
 
 rows = []
@@ -220,6 +226,11 @@ make_report_figs.vs_fastga()
 FIXTURES = os.path.join(os.path.dirname(os.path.dirname(HERE)), "tests", "fixtures")
 GOLD = {"yeast7": "yeast/gold.paf", "primates4": "primates4/gold.paf",
         "primates14": "primates14/gold.paf"}
+if not os.path.exists(os.path.join(FIXTURES, GOLD["primates4"])):
+    # the other layout in use: $SCRATCH/pga-fixtures/<name>-chr6/gold.paf
+    FIXTURES = os.path.join(os.environ.get("SCRATCH", ""), "pga-fixtures")
+    GOLD = {"yeast7": "yeast/gold.paf", "primates4": "primates4-chr6/gold.paf",
+            "primates14": "primates14-chr6/gold.paf"}
 INPUT_BP = {"yeast7": 83_409_131, "primates4": 672_453_404, "primates14": 2_630_931_800}
 WEAK = [("yeast7", 1, 1), ("primates4", 1, 8), ("primates14", 2, 32),
         ("yeast7", 1, 2), ("primates4", 1, 16), ("primates14", 4, 64)]

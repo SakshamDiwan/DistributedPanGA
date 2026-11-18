@@ -8,7 +8,8 @@ pre-alignment features such as seed counts only partly predict alignment
 time in our measurements. Replaying measured task times under a dynamic
 schedule (self-alignments first, by contig length) shortens the slowest
 rank in simulation only; it is not implemented, and it conflicts with
-sending seeds to their owner before alignment. No schedule can finish
+sending seeds to their owner before alignment and with reproducing FastGA's
+order of self pairs (Section~\ref{sec:impl:order}). No schedule can finish
 before the largest single task (Section~\ref{sec:disc:small}); that
 requires splitting self-alignments across ranks while reproducing FastGA's alignments exactly, an open problem.
 
@@ -25,4 +26,6 @@ in one signed byte. The map has one entry per ordered pair of contigs, so it
 grows with the square of the contig count: 2\,MB for the 1,422 contigs of
 hsapiens90.chr6, but 1\,GB per rank for 32,000 contigs. Every rank also
 holds its records and seeds in memory, so the memory summed over ranks is
-far above FastGA's (Section~\ref{sec:disc:human}).
+far above FastGA's (Section~\ref{sec:disc:human}). Reproducing FastGA's
+order of pairs adds a second map of the same size and needs FastGA's index
+file beside the genome database.

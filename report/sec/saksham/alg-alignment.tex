@@ -15,6 +15,10 @@ writes its own \texttt{.1aln} file and converts it to PAF with
 \texttt{ALNtoPAF}; the output is the union of these files.
 
 A pair's alignments depend only on its seeds and its two contigs, and all
-its seeds reach one rank, so by design each rank produces FastGA's alignments
-for its pairs; one human run is missing one alignment
-(Section~\ref{sec:results:human}).
+its seeds reach one rank, so each rank produces FastGA's alignments for its
+pairs, with one exception. When a contig is aligned with itself on the same
+strand, FastGA's loop can read an end position left by the previous pair it
+aligned, so the result also depends on FastGA's order of pairs. Each rank
+therefore starts such a pair from the value FastGA would have had, which
+the rank that aligned the preceding pair sends to it
+(Section~\ref{sec:impl:order}).

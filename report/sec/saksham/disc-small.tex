@@ -2,31 +2,31 @@
 
 \paragraph{Alignment limits scaling.} On primates14.chr6 every stage except
 alignment keeps getting faster up to 64 ranks, while alignment stops
-improving at about 1,200\,s. Table~\ref{tab:perrank} points to how the
+improving at about 1,150\,s. Table~\ref{tab:perrank} points to how the
 work is assigned. The average rank's alignment time halves each time the
 ranks double, as it should, but the slowest rank's barely changes, and the
 alignment stage lasts as long as that slowest rank. The work is therefore
 divisible in total but unevenly assigned: at 64 ranks the fastest rank
-finishes in 32\,s and waits about 20 minutes for the slowest. We think the cause is the unit of assignment. A rank aligns all seeds of
+finishes in 23\,s and waits about 19 minutes for the slowest. We think the cause is the unit of assignment. A rank aligns all seeds of
 the contig pairs it owns, and a pair is never split, so one expensive pair
 sets a lower bound on the alignment stage.
 
 \paragraph{Weak scaling.} At a fixed number of bases per rank, seed
 generation and redistribution stay flat, and extraction and the sort grow
 modestly. Alignment grows
-18$\times$ from yeast7 to primates14.chr6, for two reasons
+22$\times$ from yeast7 to primates14.chr6, for two reasons
 (Table~\ref{tab:weak}).
 
 First, equal input does not mean equal alignment work. The work depends on
 how much of the input matches other input: a stretch of one assembly that
 matches 13 others is aligned 13 times. The 14 primate assemblies match each
 other almost end to end, so each rank aligns 7.9$\times$ as many bases as on
-yeast7, and the average rank's alignment time grows by a similar
-8.6$\times$. The number of alignments matters too: primates4.chr6 aligns
+yeast7, and the average rank's alignment time grows 14.5$\times$. The
+number of alignments matters too: primates4.chr6 aligns
 about as many bases per rank as yeast7 but in 4.5$\times$ as many
-alignments, and takes 1.7$\times$ as long.
+alignments, and takes 2.3$\times$ as long.
 
 Second, the stage lasts as long as its slowest rank, and the work is
 unevenly assigned (see above). On
-primates14.chr6 the slowest rank takes 3.2$\times$ the average, which
-together with the first factor accounts for its 28$\times$ growth.
+primates14.chr6 the slowest rank takes 3.3$\times$ the average, which
+together with the first factor accounts for its 48$\times$ growth.

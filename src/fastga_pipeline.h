@@ -58,6 +58,35 @@ typedef struct {
 
 typedef void (*PairTaskHook)(const PairTaskRecord *rec);
 extern PairTaskHook Pair_Task_Hook;
+// --- FastGA-order emulation ---------------------------------------------------
+// FastGA's alignment loop skips the aligner for a same-strand self hit that
+// straddles the main diagonal and then reads path->bepos, which still holds the
+// end of the previous real aligner call. FastGA aligns pairs in a fixed order,
+// so that value is fixed there; here it would depend on which pairs this rank
+// owns. With Self_Order set, each self pair starts from the value FastGA would
+// have had. That value is the final bepos of another pair, usually the pair
+// with the nearest earlier partner in FastGA's contig order, so the
+// same-strand pairs are aligned in this order: partners before the anchor
+// (nearest first), partners after it, then self pairs. A self pair whose value
+// has not arrived from the rank that computes it is set aside and aligned
+// after all other pairs. The hooks hold the cross-rank bookkeeping
+// (src/fastga_order.c). NULL (the default) keeps the single pass in sorted
+// order. Requires NTHREADS == 1.
+typedef struct {
+    int     (*pair_class)(int a, int b);           // <0 partner before the anchor, 0 self, >0 after
+    int64_t (*order_key)(int a, int b);            // partner-before pairs are aligned by ascending key
+    void    (*record)(int a, int b, int calls, int bepos);  // after every same-strand pair
+    void    (*poll)(void);                         // called often: receives other ranks' results
+    int     (*self_value)(int c, int *bepos);      // 1: entry value known now; 0: set the pair aside
+    int     (*self_ready)(int c, int *bepos);      // set-aside pair: 1 known, 0 a result is still
+                                                   //   on its way, -1 needs the final rounds
+    void    (*wait_message)(void);                 // block until one more result has arrived
+    void    (*round_begin)(void);                  // final rounds: exchange what is known
+    int     (*resolve)(int c, int *bepos);         // 1: entry value known now; 0: wait a round
+    int     (*round_end)(int64_t remaining);       // 1 while any rank still has pairs set aside
+} SelfOrderHooks;
+extern SelfOrderHooks *Self_Order;
+
 // la_merge is internal to fastga_pipeline.c (called by pair_sort_search).
 
 #endif

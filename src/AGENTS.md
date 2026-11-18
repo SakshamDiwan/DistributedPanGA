@@ -17,6 +17,12 @@ Layering, innermost first: `constants.h` → `record`/`tables`/`pack`/`work_spli
   (compare `.text`/`.rodata`/`.data` of the two builds) and never touch log
   strings. Match its brace and indentation style there rather than the
   surrounding code.
+- `fastga_order.c` + the `Self_Order` hooks in `fastga_pipeline.c` make each
+  same-strand self pair start from the `path->bepos` FastGA's own pair order
+  would have left (FastGA reads it after skipping a diagonal self hit). This
+  is what makes the output independent of rank count; do not reorder the
+  same-strand passes or drop the hooks without rerunning the gold comparison
+  at several rank counts. `PGA_FASTGA_ORDER=0` gives the old single pass.
 - `kmer_adapter.h` structs are used directly by `fastga_pipeline.c` (the
   `First_Kmer_Entry`-style macros call the `adapter_*` functions, no casts), so
   the compiler checks every field use. Never reintroduce a cast to

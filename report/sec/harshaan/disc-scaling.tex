@@ -11,9 +11,9 @@ an input has, and how evenly its work falls on them, may therefore matter
 more for scaling than its size.
 
 The task bound does not explain the remaining imbalance on the human data.
-At 64 ranks its slowest rank aligns for 149\,s, more than four times its
-most expensive pair (34\,s) and 1.49 times the average (100\,s). Since no
+At 64 ranks its slowest rank aligns for 154\,s, more than four times its
+most expensive pair (34\,s) and 1.43 times the average (108\,s). Since no
 single task is that large, the gap most likely comes from the static
 assignment by length product, which does not track alignment cost (Section~\ref{sec:disc:future}). A perfectly balanced
 assignment would shorten the alignment stage by at most this factor of
-about 1.5 at 64 ranks.
+about 1.4 at 64 ranks.

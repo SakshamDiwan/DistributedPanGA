@@ -1,17 +1,32 @@
 # State / handoff
 
-Last updated: 2026-10-12 (O1 closed).
+Last updated: 2026-11-18 (branch `reproduce-fastga-order`, PR #19, draft).
 
 ## Current objective
 
-**O1 is closed.** See `o1-final-report.md` (ACM PDF:
-`docs/o1-report/o1-final-report.pdf`).
-- The extraction speedup (O1a) is merged in PR #7.
-- O1b, O1c, O1d and supermers were dropped, with evidence.
+**Exact FastGA output at every rank count: done on branch
+`reproduce-fastga-order` (inspected/tested commit 9bd1f88), draft PR #19,
+waiting for Saksham's review.** Do not merge until he has looked.
 
-There is no active objective. The next candidate is alignment-stage
-scheduling (proposal O3), pending a decision with the advisor
-(`decision-gate-2.md`).
+- Problem: hsapiens90.chr6 at 64 ranks lost 1 of 1,375,248 alignments. Cause
+  is FastGA's own loop (`FastGA.c:3257`, our `align_contigs`): after skipping
+  a same-strand self hit on the diagonal it continues from the previous
+  aligner call's `path->bepos`, which depends on pair order.
+- Fix: reproduce FastGA's order for self pairs (`src/fastga_order.c`, hooks
+  in `src/fastga_pipeline.c`); FastGA and the gold are untouched. Details
+  and evidence under Open items below.
+- Report on the branch: every DistributedPanGA number, table and figure is
+  from the 36-run sweep on this build; new subsection 5.4 (mechanism);
+  history of the miss only in 7.4; abstract leads with human 64 ranks exact,
+  8.1x FastGA. PDF 11 pages.
+
+**Single next action:** Saksham reviews PR #19 (code, regenerated numbers,
+and the small-dataset timing gap below); then merge before he starts O3.
+
+Next objective after that: alignment load balancing (O3, Saksham). This
+change leaves pair ownership free but constrains reordering within a rank
+and splitting self pairs; the largest primates14 pairs are all same-strand
+self pairs (773, 593, 507 s).
 
 ## Code status
 
@@ -39,6 +54,12 @@ Merge in order: #9 → #10 → #11 → this.
   - `PGA_SCRATCH_DIR` sets the scratch base (default `/tmp`, max 512
     characters).
   - `PGA_ALNTOPAF_TIMEOUT` sets the converter time limit (default 600 s).
+  - `PGA_FASTGA_ORDER=0` turns off FastGA-order reproduction (needs
+    `<stem>.gix`; without it the old order is used with a warning).
+    `PGA_FASTGA_THREADS` (default 32) must match the thread count of the
+    gold; `PGA_FASTGA_ORDER_LOG=1` logs every self pair's entry value.
+- GitHub CLI: `gh` in `~/.local/bin`, logged in as the user; open PRs with
+  `gh pr create --draft`.
 - FastGA tools: `~/FASTGA` (`178afcb`).
 - Datasets with FastGA gold: `$SCRATCH/pga-fixtures/`, with a `MANIFEST.txt`
   each. yeast7 is also symlinked from `tests/fixtures/`.
@@ -49,6 +70,7 @@ Merge in order: #9 → #10 → #11 → this.
   | scerevisiae8 | 96 Mbp | 50,046 |
   | primates4.chr6 | 679 Mbp | 1,547,485 |
   | primates14.chr6 | 2.64 Gbp | 4,577,556 |
+  | hsapiens90.chr6 | 15.51 Gbp | 1,375,248 |
 
   `$SCRATCH` is purged after ~8 weeks idle. Sources: yeast7 from
   `hypervolu.me/~erik/yeast`; the others from Zenodo 10.5281/zenodo.7937947.
@@ -58,18 +80,22 @@ Merge in order: #9 → #10 → #11 → this.
 
 ## Validation executed (latest)
 
-- **Correctness:** every completed run since PR #7 matches FastGA gold.
-  scerevisiae8 at N=2 aborted on #9 alone (2 GB exchange limit); #10 fixes
-  it. Runs covered:
-  - yeast7, scerevisiae8: N = 1–8;
-  - primates4: N = 4–16;
-  - primates14: N = 16, and 32 on 2 nodes.
-- **Test suites:** unit 44,231 checks plus ASan, and the MPI tier, on the
-  #10/#11 code. On `followup/post-o1`: `make test` passes and the MPI tier
-  passes at N = 1, 2, 3, 4, 8 with M-06 comparing all digests (job 60448488,
-  `TMPDIR=$SCRATCH/tmp`).
-- **Jobs:** 59712760, 59713118, 59715282, 59717508, 59717520. Results are in
-  `pr1-results.md`, `pr2-results.md` and `decision-gate-{1,2}.md`.
+- **2026-11-17, build 6032f52 (code unchanged since), jobs 61449300-61449335:**
+  report sweep, 12 configurations x 3 repeats, all 36 gold=MATCH against the
+  original FastGA gold; repeats within ~1%. Results in
+  `~/pga-report-results-order/` (layout of `report/fig/make_figs.py`).
+- **2026-11-16, jobs 61447693-61447707:** same 12 configurations once each,
+  all MATCH; same-binary controls with `PGA_FASTGA_ORDER=0`: human 296.1 /
+  186.0 s vs 301.5 / 188.6 s on (32 / 64 ranks; off loses the alignment at
+  64), primates14 64 ranks 1,180.4 vs 1,188.3 s.
+- **Values:** diagnostic FastGA (`~/pga-build/fastga-diag`, jobs
+  61435904-61435906 + login-node yeast7) prints the entry `bepos` of every
+  self pair; all 1,202 derived values match, and FastGA's thread ranges match
+  ours.
+- **Not executed on this branch:** `make test` / MPI test tier; no unit
+  tests exist for `fastga_order.c`.
+- Older (O1-era) validation: jobs 59712760, 59713118, 59715282, 59717508,
+  59717520; `pr1-results.md`, `pr2-results.md`, `decision-gate-{1,2}.md`.
 
 ## Open items (recorded, not fixed)
 
@@ -89,22 +115,78 @@ Merge in order: #9 → #10 → #11 → this.
   extraction. Runs made before the fix need the post-processing correction.
   Fix is on branch `timing-barrier` (26b80da, not merged; also logs
   `extract_wait_s` per rank and keeps `extract_s` as the rank's own time).
-- **hsapiens90.chr6 at 64 ranks misses 1 of 1,375,248 alignments (found
-  2026-11-14, open):** reproducible (jobs 61244457, 61277456); 32 ranks match
-  exactly (61255434, 61277457); FastGA identical at -T16/-T32. Missing line:
-  same-strand self-alignment of `HG03453#2#JAGYVV010000063.1` (GDB contig
-  1072), a 6,419,539-6,423,436 vs b 6,419,557-6,423,438. `PGA_PAIR_TASKS`:
-  pair (1072,1072,N) has the same 229 seeds and 6 hits at 32 and 64 ranks,
-  but nlass 1 vs 0, so the difference is in alignment. Lead (not proven):
-  `align_contigs` (identical to upstream FastGA 178afcb apart from debug
-  code) handles a self-hit that straddles the main diagonal by setting only
-  `path->abpos = path->aepos = 0`; `bbpos/bepos` keep the previous pair's
-  values and feed `eant = aepos + bepos`, so later chains can be skipped.
-  Trace build on branch `trace-align` (`PGA_TRACE_ANCHOR=1072`, job 61278174)
-  shows the stale `b=87063320-87150831` from pair (1072,367). To prove: compare
-  with the 32-rank trace (61278175 was cancelled by the system; resubmitted as
-  61295918 on 2026-11-14, pending when this was written), then test the
-  one-line fix (also zero `bbpos/bepos`) at 32 and 64 ranks.
+- **hsapiens90.chr6 at 64 ranks missed 1 of 1,375,248 alignments (found
+  2026-11-14; fixed on branch `match-fastga-order`, 2026-11-16, not merged):**
+  - Cause (traced, jobs 61278174 / 61295918): `align_contigs`, identical to
+    FastGA 178afcb `FastGA.c:3257`, skips the aligner for a same-strand self
+    hit that straddles the main diagonal and zeroes only `abpos/aepos`; the
+    loop then reads `path->bepos` left by the previous real aligner call
+    (`eant = aepos + bepos`) and jumps if it exceeds the current position.
+    FastGA's pair order fixes that value; ours depended on rank ownership
+    (653 at 32 ranks, 87,150,831 at 64 for contig 1072).
+  - Fix chosen: reproduce FastGA's value (`src/fastga_order.c`,
+    `Self_Order` hooks in `src/fastga_pipeline.c`). FastGA order = contig
+    permutation in `<stem>.gix` (length-sorted), parts by length, thread
+    ranges by seed count (`PGA_FASTGA_THREADS`, default 32). Each
+    earlier-partner pair's final bepos is sent to the owner of the self pair;
+    self pairs wait only for the answers they need. `PGA_FASTGA_ORDER=0`
+    restores the old path. Needs `<stem>.gix`; adds an N*N byte map.
+  - Executed (jobs 61447693-61447707, one run each, final build 6032f52):
+    gold=MATCH on yeast7 (1,2,4,8 ranks), primates4 (4,8,16), primates14
+    (16,32,64), human (32,64). Same binary, feature on vs off: human 301.5 vs
+    296.1 s (32), 188.6 vs 186.0 s (64, off loses the alignment), primates14
+    64 ranks 1,188.3 vs 1,180.4 s. Values: all 1,202 derived entry values
+    equal those printed by a diagnostic FastGA (`~/pga-build/fastga-diag`,
+    jobs 61435904-61435906 and a login-node yeast7 run).
+  - Not derivable: where FastGA has no earlier call in a thread range it
+    reads an unset field (11 self pairs over the four datasets). Observed
+    32764-32767 for the first contig of the run, 0 elsewhere; we use 32767
+    (`PGA_FASTGA_UNSET_BEPOS`) and 0.
+  - Unit tests (2026-11-18): `make test-fastga-order` (F-01..F-06,
+    `tests/unit/test_fastga_order.c`) on the MPI-free core
+    `src/fastga_order_core.c`; ranges against a verbatim copy of FastGA's
+    loops, all rules against a sequential model of FastGA incl. self pairs
+    depending on self pairs (up to 11 rounds). Nine mutations all caught.
+    Full `make test` passes. The MPI messaging/scheduling is still covered
+    only end to end.
+  - Load balancing (O3), replay of recorded per-pair times
+    (`scripts/simulate_pair_schedule.py`, records of jobs 59717520 and
+    61277456): with the current length-product assignment the order costs
+    0%. With a cost-based assignment it costs 28% on primates14 at 16 ranks
+    (contig 0 is short but its self pair is the most expensive, 773 s, and its
+    0.008 s prerequisite runs late on another rank); ordering equally near
+    earlier partners by fewest seeds first removes that (0% everywhere
+    tested). A dynamic queue costs up to 69% unless prerequisites of
+    expensive self pairs get priority, then 0%. Human: 0% for every static
+    variant, up to 24% for the dynamic queue without priority. Splitting a
+    self pair along diagonals: only the chunk containing the main diagonal
+    reads the leftover (code reading, not tested).
+  - Open: the self-depends-on-self round
+    never occurred in a dataset run; the off path matched gold on yeast7 (1 process)
+    and on human 32 / primates14 64 only; three repeats of the headline
+    timings on this build; report to FastGA's authors. The alternative
+    one-line fix (zero `bbpos/bepos`) is on local branch `fix-self-straddle`:
+    it changes up to 0.053% of FastGA's own alignments, so it was not taken.
+  - **Report sweep on this build (2026-11-17, jobs 61449300-61449335):** the
+    report's 12 configurations, three repeats each, all 36 gold=MATCH;
+    repeats within about 1%. Filed in `~/pga-report-results-order` (layout of
+    `report/fig/make_figs.py`); tables, figures and every number in the
+    report text now come from it. `make_figs.py` reads hsapiens90 from
+    results.tsv, leaves `table_fastga.tex` alone when there is no
+    `fastga.tsv` (FastGA rows are still Saksham's and the hand-added human
+    ones), and subtracts each rank's wait for other ranks from its
+    alignment time.
+  - **Unexplained, for Saksham:** his earlier table rows for the three small
+    datasets were 4-20% slower in total than this sweep (yeast7 1 rank
+    79.97 vs 66.61 s; per-rank search 41.91 vs 23.08 s). Not a code effect:
+    the old code in our job setup already gave the new times (yeast7 8 ranks
+    9.40 s, primates4 16 ranks 70.5 s on 2026-11-14; yeast7 1-rank search
+    22.6 s on 2026-10-12). His FastGA times do reproduce here within 2%.
+    So his pipeline runs differ in setup (build flags, binding, darshan?);
+    his `jobs/report` scripts are not in the repo. Ours:
+    `jobs/human/07_report_sweep.sbatch`.
+  - User decides when to merge. Offline notes (not in git):
+    `notes/local/missing-alignment.pdf`, `replicating-fastga.pdf`.
 - **Report (2026-11-14, branch `report-human-merge`, not pushed):** human rows
   are now in the shared tables (`report/fig/table_{pipeline,fastga,perrank}.tex`,
   added by hand; Saksham's generator is not in the repo and would overwrite
