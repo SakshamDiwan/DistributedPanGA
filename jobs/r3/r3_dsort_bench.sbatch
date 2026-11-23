@@ -53,7 +53,7 @@ for rep in $(seq 1 $REPS); do
     err=$O/$name.rep$rep.err
     t0=$(date +%s.%N)
     srun -n $N --ntasks-per-node=$RPN -c $C --cpu-bind=cores --kill-on-bad-exit=1 --export=$EXP \
-         $BENCH $STEM 1 > /dev/null 2> $err
+         $BENCH $STEM 1 < /dev/null > /dev/null 2> $err   # srun must not eat the variant list on stdin
     rc=$?; wall=$(echo "$(date +%s.%N) - $t0" | bc)
     b=$(grep -h '^\[bench\] rep=' $err | head -1)
     echo "$name rep$rep rc=$rc srun_wall_s=$wall env=[$envs] ${b#\[bench\] }"

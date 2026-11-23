@@ -66,7 +66,7 @@ fi
 O=${R3_OUT:-$HOME/pga-r3-results}/gold/$DS/n$NODES-r$N/$VARIANT; mkdir -p "$O"
 cp merge.err merge.out pga-mpi-merge.timing.csv "$O"/ 2>/dev/null
 IFS=, read -r w e s m a t < <(tail -1 pga-mpi-merge.timing.csv)
-( flock 9
+( flock 9 2>/dev/null || true   # GPFS home: flock unsupported (524); one short O_APPEND write per job
   [ -s ${R3_OUT:-$HOME/pga-r3-results}/gold.tsv ] || printf 'dataset\tnodes\tranks\tvariant\trc\textract_s\tsort_s\tmerge_s\talignments_s\ttotal_s\twall_s\tgold\tmax_rank_peak_kb\tjob\n' >&9
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' $DS $NODES $N $VARIANT $rc $e $s $m $a $t $wall $G ${P:-NA} $SLURM_JOB_ID >&9
 ) 9>>${R3_OUT:-$HOME/pga-r3-results}/gold.tsv
