@@ -1,32 +1,38 @@
 # State / handoff
 
-Last updated: 2026-11-18 (branch `reproduce-fastga-order`, PR #19, draft).
+Last updated: 2026-11-23 (branch `r3-extract-sort`, not pushed; base `main`
+5c1be75, PR #19 merged).
 
 ## Current objective
 
-**Exact FastGA output at every rank count: done on branch
-`reproduce-fastga-order` (inspected/tested commit 9bd1f88), draft PR #19,
-waiting for Saksham's review.** Do not merge until he has looked.
+**R3: extraction, distributed sort and record exchange.** Report:
+`docs/agent/r3-extract-sort-report.md` (checklist in §1). Done from existing
+logs and offline histograms: bucket imbalance (P0-A), sort-stage breakdown
+(P0-B), stage-2 memory model (P0-C, within 0.3 GB of all 36 sweep runs), radix
+sort write-up, overlap/exchange review, N1 lemma. Alignment code untouched.
 
-- Problem: hsapiens90.chr6 at 64 ranks lost 1 of 1,375,248 alignments. Cause
-  is FastGA's own loop (`FastGA.c:3257`, our `align_contigs`): after skipping
-  a same-strand self hit on the diagonal it continues from the previous
-  aligner call's `path->bepos`, which depends on pair order.
-- Fix: reproduce FastGA's order for self pairs (`src/fastga_order.c`, hooks
-  in `src/fastga_pipeline.c`); FastGA and the gold are untouched. Details
-  and evidence under Open items below.
-- Report on the branch: every DistributedPanGA number, table and figure is
-  from the 36-run sweep on this build; new subsection 5.4 (mechanism);
-  history of the miss only in 7.4; abstract leads with human 64 ranks exact,
-  8.1x FastGA. PDF 11 pages.
+Implemented (commits 0714a54..f57b432):
+- `timing-barrier` cherry-picked; `[r3-s2]` per-rank substage line.
+- `run_stage2_take`: extraction buffer freed after packing, **on by default**
+  in `pga-mpi-merge` (`PGA_STAGE2_KEEP_LOCAL=1` = old).
+- Opt-in, defaults unchanged: `PGA_SORT_PARTS=1024` (FastGA's GIXmake layout),
+  `PGA_SORT_THREADS`, `PGA_SPLITTER=optimal`, `PGA_EXCHANGE_LARGE_COUNT=1`
+  (`MPI_Alltoallv_c`).
+- Tools: `pga-dsort-bench`, `pga-prefix-hist`; scripts `r3_*.py`; figures
+  `report/fig/r3_*.pdf`.
 
-**Single next action:** Saksham reviews PR #19 (code, regenerated numbers,
-and the small-dataset timing gap below); then merge before he starts O3.
+Executed: `make test`, `make test-asan` (incl. new SO-01..05, S-10) pass;
+MPI tests M-07 and large-count cases pass as single process only; login-node
+yeast7 bench smoke test (digests equal across 6 variants).
+**Not executed:** multi-rank MPI tier, bench sweep, end-to-end gold on this
+branch.
 
-Next objective after that: alignment load balancing (O3, Saksham). This
-change leaves pair ownership free but constrains reordering within a rank
-and splitting self pairs; the largest primates14 pairs are all same-strand
-self pairs (773, 593, 507 s).
+**Single next action:** user submits `bash jobs/r3/submit_r3.sh all` (frozen
+build `~/pga-build/r3`, f57b432); then fill report §7.4 and decide the sort
+defaults (switching to 1,024 parts needs the `fast` gold runs to match).
+
+Next objective after that: Saksham's O3 (alignment load balancing). This
+branch touches `pga-mpi-merge.c` only in the extraction/sort block.
 
 ## Code status
 
@@ -99,22 +105,9 @@ Merge in order: #9 → #10 → #11 → this.
 
 ## Open items (recorded, not fixed)
 
-- **Extraction wait is timed as sort (found 2026-11-14):** each rank stops its
-  extraction timer when it finishes (`pga-mpi-merge.c:324`, no barrier), then
-  waits for the slowest extractor in the sort's first `MPI_Allreduce`
-  (`dsort.c:384`). Stages are reduced separately with `MPI_MAX`, so the wait
-  is counted twice: in `extract_s` (slowest rank) and in `sort_s` (fastest
-  rank), and `total_s` overstates. Size = extraction spread across ranks:
-  ~0 on yeast7 and primates4 at 4 ranks; ~2.6 s on primates4 at 8/16 ranks;
-  4-9 s on primates14 (extraction splits whole contigs, so at 64 ranks 36 of
-  64 ranks extract nothing). Report numbers are corrected in post-processing
-  (`report/fig/make_figs.py`, `fix_sort_wait`: sort = max_r(extract_r +
-  sort_r) - max_r(extract_r), from the `[o1-0]` lines); corrected totals agree
-  with the stopwatch wall time to ~1 s. **Fix:** `MPI_Barrier` after
-  `extract_to_records`, before `t_extract` is taken, so the wait counts as
-  extraction. Runs made before the fix need the post-processing correction.
-  Fix is on branch `timing-barrier` (26b80da, not merged; also logs
-  `extract_wait_s` per rank and keeps `extract_s` as the rank's own time).
+- **Extraction wait is timed as sort (found 2026-11-14):** fixed by the
+  barrier (26b80da), now on `r3-extract-sort` (0714a54), not yet on `main`.
+  Runs made without it need `report/fig/make_figs.py`'s `fix_sort_wait`.
 - **hsapiens90.chr6 at 64 ranks missed 1 of 1,375,248 alignments (found
   2026-11-14; fixed on branch `match-fastga-order`, 2026-11-16, not merged):**
   - Cause (traced, jobs 61278174 / 61295918): `align_contigs`, identical to
