@@ -5,34 +5,45 @@ Last updated: 2026-11-23 (branch `r3-extract-sort`, not pushed; base `main`
 
 ## Current objective
 
-**R3: extraction, distributed sort and record exchange.** Report:
-`docs/agent/r3-extract-sort-report.md` (checklist in §1). Done from existing
-logs and offline histograms: bucket imbalance (P0-A), sort-stage breakdown
-(P0-B), stage-2 memory model (P0-C, within 0.3 GB of all 36 sweep runs), radix
-sort write-up, overlap/exchange review, N1 lemma. Alignment code untouched.
+**R3 (extraction, distributed sort, record exchange): done on branch
+`r3-extract-sort` (head after 93d70dd), report
+`docs/agent/r3-extract-sort-report.md` (§0 summary, §1 checklist).** Not
+pushed, no PR yet. Alignment code untouched; `pga-mpi-merge.c` changed only in
+the extraction/sort block.
 
-Implemented (commits 0714a54..f57b432):
-- `timing-barrier` cherry-picked; `[r3-s2]` per-rank substage line.
-- `run_stage2_take`: extraction buffer freed after packing, **on by default**
-  in `pga-mpi-merge` (`PGA_STAGE2_KEEP_LOCAL=1` = old).
-- Opt-in, defaults unchanged: `PGA_SORT_PARTS=1024` (FastGA's GIXmake layout),
-  `PGA_SORT_THREADS`, `PGA_SPLITTER=optimal`, `PGA_EXCHANGE_LARGE_COUNT=1`
-  (`MPI_Alltoallv_c`).
-- Tools: `pga-dsort-bench`, `pga-prefix-hist`; scripts `r3_*.py`; figures
-  `report/fig/r3_*.pdf`.
+New defaults, each switchable back:
+- extraction buffer freed after packing (`PGA_STAGE2_KEEP_LOCAL=1`);
+- one `MPI_Alltoallv_c` for stage 2 (`PGA_EXCHANGE_LARGE_COUNT=0`);
+- 1,024 sort parts, FastGA's layout (`PGA_SORT_PARTS=256`);
+- heavy-part split (`PGA_SORT_HEAVY=0`).
 
-Executed: `make test`, `make test-asan` (incl. new SO-01..05, S-10) pass;
-MPI tests M-07 and large-count cases pass as single process only; login-node
-yeast7 bench smoke test (digests equal across 6 variants).
-**Not executed:** multi-rank MPI tier, bench sweep, end-to-end gold on this
-branch.
+Opt-in: `PGA_SORT_THREADS` (recommend `-c/2` in job scripts),
+`PGA_SPLITTER=optimal` (not worth it). Barrier after extraction (26b80da) is
+included. Effect: sort stage −22–29%, stage-2 per-rank memory −38% (human 64:
+17.97 → 13.13 s, 14.07 → 8.66 GB).
 
-**Single next action:** user submits `bash jobs/r3/submit_r3.sh all` (frozen
-build `~/pga-build/r3`, f57b432); then fill report §7.4 and decide the sort
-defaults (switching to 1,024 parts needs the `fast` gold runs to match).
+Validation executed (2026-11-23, jobs 61880294–61883670, builds in
+`~/pga-build/r3` = f57b432 and `~/pga-build/r3b` = 93d70dd; results in
+`~/pga-r3-results/`):
+- gold: 32/32 MATCH on yeast7, primates4, primates14, hsapiens90 at 1–64
+  ranks;
+- MPI tier PASS on all 3 builds;
+- 357 `pga-dsort-bench` runs (8–256 ranks) give one index digest per dataset;
+- `make test`, `make test-asan` pass.
 
-Next objective after that: Saksham's O3 (alignment load balancing). This
-branch touches `pga-mpi-merge.c` only in the extraction/sort block.
+**Single next action:** open the PR (formal, draft) and tell Saksham which
+block of `pga-mpi-merge.c` changed; then optionally re-run the report sweep on
+this branch for end-to-end numbers.
+
+Open items found here:
+- FastGA `msd_sort` threading defects (§6 of the report): threads never
+  joined, `pthread_create` unchecked, `if` around `cond_wait`, static
+  mutex/condvar re-initialised per call. Production is safe (one call per
+  process); report upstream.
+- Yifan's question list was not found; §10 answers the questions from the
+  task text.
+- ≥128 ranks: deeper prefix buckets and sub-contig extraction are deferred
+  (§12.2).
 
 ## Code status
 

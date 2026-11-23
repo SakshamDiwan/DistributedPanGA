@@ -6,8 +6,24 @@ stage-2 memory. Alignment scheduling, pair ownership (`contig_assignment.c`),
 the FastGA-order mechanism and `fastga_pipeline.c` are untouched.
 
 Status legend: **DONE** (measured or implemented and tested here),
-**MEASURED / NO CHANGE NEEDED**, **PENDING RUN** (scripts ready, cluster job
-not yet run), **DEFERRED**, **BLOCKED**.
+**MEASURED / NO CHANGE NEEDED**, **DEFERRED**, **BLOCKED**.
+
+**Outcome in one paragraph.** The stage-2 (extract → sort) path is now
+22–29% faster and needs 38% less memory per rank, with byte-identical output.
+Three new defaults do it:
+1. the extraction buffer is freed after packing;
+2. the local sort uses FastGA's own 1,024-part layout and splits heavy
+   (poly-A/T) parts;
+3. the exchange is one `MPI_Alltoallv_c`.
+
+Human 64 ranks: sort stage 17.97 → 13.13 s, per-rank peak 14.07 → 8.66 GB.
+The summed per-rank peak, compared with FastGA, falls from 49.6× to 29.0×
+(human 32 ranks: 44.8× → 27.6×). End-to-end gold matched FastGA in all 32
+runs (yeast7, primates4, primates14, hsapiens90; 1–64 ranks; defaults and
+variants). The sorted index (k-mers and LCPs) is identical across 357 sort
+benchmarks at 8–256 ranks. The five-base bucket imbalance is real but not the
+bottleneck below ~128 ranks; the local sort was, and inside it one thread
+sorting the AAAAA bucket.
 
 All numbers below come from scripts in the repo, run on data that is on disk:
 
@@ -16,7 +32,7 @@ All numbers below come from scripts in the repo, run on data that is on disk:
 | `~/pga-report-results-order/` | the 36-run report sweep (2026-11-17, jobs 61449289–61449326, build 6032f52, all gold=MATCH), per-rank `[o1-0]`, `[pr1]`, `[pr1-mem]` lines | `scripts/r3_stage2_breakdown.py` |
 | `pga-prefix-hist` output (scratch) | exact 12-base prefix histogram + per-contig record counts of hsapiens90, primates14, primates4, yeast7, through the production extraction scan | `make pga-prefix-hist`; `scripts/r3_bucket_analysis.py` |
 | `report/fig/r3_*.pdf` | figures | `scripts/r3_figs.py --hist <dir>` (needs `module load python`) |
-| `~/pga-r3-results/` | new benchmark and gold runs | `jobs/r3/submit_r3.sh` — **PENDING RUN** |
+| `~/pga-r3-results/` | new benchmark and gold runs (jobs 61880294–61883670, 2026-11-23): round 1 `<ds>/` + `gold.tsv` (opt-in variants, build f57b432), round 2 `defaults2/` (1,024 parts + large-count default, cc9c5bc), round 3 `bench2/` + `defaults3/` (heavy-part split, eec599b/93d70dd) | `jobs/r3/submit_r3.sh`, `scripts/r3_bench_summary.py <dir>` |
 
 Validation of the offline method: the record totals from `pga-prefix-hist`
 equal the logged totals (human 11,439,544,067), and the Python port of
@@ -40,19 +56,20 @@ on this branch (cherry-picked 26b80da).
 |---|---|---|
 | Timing: extraction wait counted as sort | **DONE** | `timing-barrier` (26b80da) cherry-picked; new `[r3-s2]` line splits every substage into local work vs. collective wait |
 | P0-A bucket histogram, per-rank loads | **DONE** | buckets are very skewed (max/mean 8.97, CV 0.92) but per-rank slices are balanced to 1.05 (32 ranks) / 1.18 (64 ranks); the 64-rank excess comes from the greedy splitter, not from indivisible buckets; the 5-base scheme hits a hard floor at ≥128 ranks |
-| P0-B sort scaling 32→64 | **DONE (from logs)**; isolating runs **PENDING RUN** | sort stage 22.1 → 16.8 s (66% efficiency) on the *same 4 nodes*: exchange is network-bound and does not shrink (4.6 → 4.2 s); local sort shrinks only 1.31× because of slice imbalance (1.05 → 1.18), fewer parallel sort parts per rank, and twice the threads per node |
-| P0-C memory | **DONE (model validated on 36 runs)**; after-change measurement **PENDING RUN** | stage 2 holds extraction buffer + receive buffer + (send buffer or sort scratch) + 2 GiB exchange staging = the per-rank peak; the 45–50× is human-only and is the aggregate of 32–64 in-memory copies of the index vs. FastGA's out-of-core GIXmake |
-| Memory fix: free extraction buffer after packing | **DONE**, default on; measurement **PENDING RUN** | predicted per-rank peak human 32: 22.9 → 16.1 GB; 64: 14.1 → 10.0 GB; aggregate human 32: 675 → ~486 GB |
-| P1-A partitioning alternatives | **DONE (analysis)**; optimal contiguous splitter implemented opt-in, **PENDING RUN** | any split that keeps whole 12-base groups is exact; deeper (≤12-base) contiguous prefixes fix balance at any rank count; hashing on the 12-base prefix would also be exact but buys nothing over a deeper contiguous split |
-| P1-B radix sort | **DONE (documented)**; thread/part options implemented opt-in, **PENDING RUN** | FastGA's in-place MSD radix sort; we hand it 256 first-byte parts where FastGA's GIXmake hands it 1,024 five-base parts; 4 threads use 4 of 8–16 allocated cores |
+| P0-B sort scaling 32→64 | **DONE** | before: 22.1 → 16.8 s (66%) on the *same 4 nodes*. Limiting component: the local sort (56%), above all one thread sorting the AAAAA bucket; then the node-bandwidth-bound exchange (21–25%). After the changes: 17.95 → 13.13 s, and 128 ranks on 8 nodes 8.34 s |
+| P0-C memory | **DONE** | stage-2 peak = extraction + receive + (send or sort scratch) + 2 GiB staging, model within 0.3 GB of all 36 sweep runs; the 45–50× is human-only (sum over ranks of in-memory index copies vs. FastGA's out-of-core GIXmake) |
+| Memory: free extraction buffer after packing; drop staging | **DONE, default** | per-rank peak human 32: 22.88 → 14.21 GB; 64: 14.07 → 8.66 GB; aggregate human 32: 675 → 416 GB (44.8× → 27.6× FastGA) |
+| P1-A partitioning alternatives | **DONE** (analysis + opt-in optimal splitter, measured) | any split that keeps whole 12-base groups is exact; the optimal contiguous splitter helps ≤ 0.4 s at 64 ranks and hurts at 256, so it stays opt-in; deeper (≤12-base) prefixes are the fix for ≥128 ranks (DEFERRED) |
+| P1-B radix sort | **DONE** (documented; 1,024 parts + heavy-part split default) | FastGA's in-place MSD radix sort; FastGA's GIXmake gives it 1,024 parts and we gave it 256; heavy parts now split; msd_sort 8.35 → 4.42 s at human 64 |
 | P1-C extraction imbalance | **MEASURED / NO CHANGE NEEDED (≤64 ranks)** | whole-contig split: human max/mean 1.12 / 1.35 at 32 / 64; primates14 36 of 64 ranks idle; costs ≤ 1.5 s of a 186–1,180 s run |
 | P2-A overlap | **MEASURED / NO CHANGE NEEDED** | the record exchange is ≤ 4.6 s, ≤ 2.2% of end-to-end on human and < 0.1% on primates14; not worth an asynchronous redesign |
-| P2-B chunked exchange | **DONE (review)**; `MPI_Alltoallv_c` path implemented opt-in, **PENDING RUN** | rounds are forced by 32-bit counts (human slices are 3.8–6.8 GB); staging costs 2 GiB/rank and two extra copies; MPI-4 large-count removes both |
-| P1-D 128+ ranks | **DONE (analysis)**; 128/256-rank sort runs **PENDING RUN** | sort side has no hard rank cap; 5-base buckets stop balancing at ~128 ranks; msd parallelism and the whole-contig extraction split degrade; the 127 cap is the `int8_t` pair map (alignment side, not touched) |
+| P2-B chunked exchange | **DONE** (`MPI_Alltoallv_c` default) | rounds were forced by 32-bit counts; staging cost 2 GiB/rank and two copies; `MPI_Alltoallv_c` is faster in every configuration (human 32: 4.63 → 3.27 s; primates14 16: 1.65 → 0.60 s) |
+| P1-D 128+ ranks | **DONE** (measured at 128/256 ranks with `pga-dsort-bench`) | sort side runs at 128 and 256 ranks; 256 is not faster than 128 on 8 nodes (8.79 vs 8.34 s): five-base buckets and the remaining heavy groups bound it; the 127 cap is the `int8_t` pair map (alignment side, not touched) |
 | N1 lemma | **DONE** (§9) | checked against `new_self_merge_thread` line by line; the exact condition is "whole 12-base groups per rank", weaker than "whole 5-base buckets" |
 | Yifan's questions | **BLOCKED** | the question list is not in the repo or notes; §10 answers the R3 extraction/sort questions as stated in the task. Paste the list to map answers one-to-one |
-| End-to-end gold on this branch | **PENDING RUN** | `jobs/r3/r3_gold.sbatch`, 15 jobs |
-| MPI test tier (M-07, large-count) | **PENDING RUN** | `jobs/r3/r3_mpi_tests.sbatch`; singleton runs pass |
+| End-to-end gold on this branch | **DONE** | 32/32 gold=MATCH: 15 (round 1), 7 (round 2), 10 (round 3, final defaults + physical-core threads) |
+| MPI test tier (M-07, large-count) | **DONE** | PASS at 1, 2, 3, 4, 8 ranks on each of the three builds; M-06 made all 4 comparisons |
+| FastGA `msd_sort` defects found | **RECORDED** (not fixed: `lib/` is upstream) | never joins its threads, ignores `pthread_create` failure, re-initialises its static mutex/condvar per call; safe for one call per process, which is how production uses it (§6) |
 
 ---
 
@@ -67,8 +84,8 @@ on this branch (cherry-picked 26b80da).
 | histogram | `dsort.c:bucket_local_counts`, `MPI_Allreduce` | 8 KiB per rank |
 | ownership | `dsort.c:compute_destination_map` (FastGA `distribute()` lines 678–697); new opt-in `compute_destination_map_optimal` (`PGA_SPLITTER=optimal`) | contiguous bucket ranges, computed redundantly on every rank |
 | pack | `dsort.c:organize_send_buffer` | two passes, out-of-place into a send buffer grouped by destination |
-| exchange | `chunked_exchange.c:chunked_alltoallv` | one `MPI_Alltoallv` if every rank's totals ≤ budget and ≤ INT_MAX; else rounds through staging buffers; new opt-in `MPI_Alltoallv_c` (`PGA_EXCHANGE_LARGE_COUNT=1`) |
-| local sort | `sort.c:sort_records` → `lib/MSDsort.c:msd_sort` | out-of-place regroup by part, then in-place MSD radix sort, one thread per part; new `PGA_SORT_THREADS`, `PGA_SORT_PARTS` |
+| exchange | `chunked_exchange.c:chunked_alltoallv` | default (R3): one `MPI_Alltoallv_c` when both sides are contiguous buffers; otherwise (seed exchange, or `PGA_EXCHANGE_LARGE_COUNT=0`) one `MPI_Alltoallv` if totals ≤ budget and ≤ INT_MAX, else rounds through staging |
+| local sort | `sort.c:sort_records` → `lib/MSDsort.c:msd_sort` | out-of-place regroup into 1,024 parts (R3 default; was 256), heavy parts regrouped into 256 sub-parts, then one in-place MSD radix sort call, one thread per part; `PGA_SORT_THREADS`, `PGA_SORT_PARTS`, `PGA_SORT_HEAVY` |
 | LCP | `sort.c:recalc_all_lcps`; seam fix in `run_stage2` | semantic LCP in bases |
 | checks | `verify_per_rank_sorted`, `verify_cross_rank_boundaries` | `MPI_Abort` 2 / 3 |
 | driver | `pga-mpi-merge.c` lines ~330–375 | now calls `run_stage2_take` and prints `[r3-s2]` |
@@ -150,7 +167,10 @@ at 32 ranks, 3.79 GB at 64).
   17.7% more than the mean. Local sort and exchange time follow the largest
   slice, so the optimal splitter would cut them by up to ~11% (predicted
   ~1–1.5 s of a 16.8 s sort stage, < 1% of the 186 s end-to-end). Real but
-  small; that is why the improvement is opt-in pending measurement.
+  small. Measured (§7.2): the optimal splitter saves 0.43 s at human 64 and
+  costs 1.5 s at 256 ranks, so it stays opt-in. The local sort's internal
+  balance (one thread per part, §6) turned out to matter far more than the
+  slice balance across ranks.
 
 ---
 
@@ -200,8 +220,10 @@ Why:
      share the same memory bandwidth.
    primates14 runs at a constant 16 ranks/node and still loses throughput
    per rank (31.6 → 29.6 → 25.9 M rec/s) as parts per rank fall
-   (16.7 → 8.7 → 4.7), which points at (3a). Separating (3a) from (3b)
-   exactly is what the `p1024` / `tphys` bench variants do — **PENDING RUN**.
+   (16.7 → 8.7 → 4.7), which points at (3a). The bench settles it (§7.4):
+   more threads alone change nothing (human 64: 8.36 → 8.34 s), 1,024 parts
+   cut `msd_sort` by 35% and splitting the heavy part by another 18%, so
+   (3a) dominated; (3b) shows up only as a smaller gain from extra threads.
 4. Collective waits are small: `hist` + `verify` are ≤ 8% of the stage.
    Computation (pack + local sort + LCP + checks) is ~70–75% of the stage
    and communication 18–25%.
@@ -313,9 +335,27 @@ With `PGA_EXCHANGE_LARGE_COUNT=1` S = 0 as well (§8).
 
 Aggregate for human (sum of rank peaks): 675 → ~486 GB at 32 ranks (44.8× →
 ~32×), 747 → ~567 GB at 64 (49.6× → ~38×); with large-count a further
-~2 GB × ranks. **PENDING RUN:** measured values come from the gold jobs (`[pr1-mem]`)
-and the bench (`s2_hwm_kb`), including a same-binary control
-(`PGA_STAGE2_KEEP_LOCAL=1`).
+~2 GB × ranks.
+
+**Measured** (bench `s2_hwm_kb` and gold `[pr1-mem]` agree to 0.01 GB):
+
+| config | pre-R3 | take only | take + large-count (default) | sum over ranks of max(extract, stage 2), pre → default | × FastGA peak |
+|---|---|---|---|---|---|
+| human 32 | 22.88 | 15.85 | **14.21** | 675 → 416 GB | 44.8 → 27.6 |
+| human 64 | 14.07 | 9.82 | **8.66** | 748 → 436 GB | 49.6 → 29.0 |
+| human 128 | 9.46 | 6.72 | **5.64** | 880 → 467 GB | — |
+| human 256 | 6.82 | 4.92 | **4.62** | 994 → 540 GB | — |
+| primates14 16 | 11.52 | 7.79 | **7.48** | 129 → 76 GB | 2.3 → 1.4 |
+| primates14 64 | 6.74 | 4.76 | **4.77** | 158 → 113 GB | 2.8 → 2.0 |
+
+Per-rank columns are the stage-2 peak in GB. The sums cover extraction and
+stage 2 only; for human, stage 2 is the whole-run peak, so they equal the
+end-to-end sums. For primates the alignment stage of FastGA and of ours
+dominates both sides, so compare whole-run peaks there. The same-binary
+control (`keep`, gold job 61880973) gave 22.87 GB at human 32. Stage 2 is still the per-rank peak on human; on primates14 64 the overall
+peak is now another stage (5.25 GB end-to-end). The summed peak still grows
+with rank count (fixed per-rank memory: adapter index, MPI, GDB), so ranks
+should not be added for memory reasons alone.
 
 Projection to larger inputs (records per base = 0.737 on all three primate
 sets; record size 18 B while ≤ 2^15 contigs and contigs ≤ 4 Gbp): one copy of
@@ -359,9 +399,10 @@ fix):
 - **Pre-bucketing and `part[]`:** `msd_sort(array, nelem, rsize, ksize, part,
   beg, end, nthreads)` expects the array already grouped into contiguous parts
   whose concatenation, once each part is sorted, is sorted. `part[x]` is the
-  **byte length of part x**. `sort_records` builds that layout by counting
-  records per first k-mer byte (256 parts), copying them out of place into
-  part order, and copying back.
+  **byte length of part x**. Before R3, `sort_records` built that layout by
+  counting records per first k-mer byte (256 parts), copying them out of place
+  into part order, and copying back; it now does the same with the 1,024
+  five-base buckets.
 - **Threading:** `msd_sort` keeps a stack of free thread ids and, for each
   non-empty part in index order, takes one (waiting on a condition variable
   when all are busy) and runs `pthread_create(sort_thread)` on that part. A
@@ -391,75 +432,164 @@ fix):
   `NUM_BUCK = 1024` five-base buckets of its part (`notes/GIXmake_annotated.c:1449–1474`).
   Our 256-part regroup is the deviation, and the comment in `sort_records`
   claiming it "matches FastGA's internal layout" was wrong.
-- **New options** (defaults unchanged until the runs are in): `PGA_SORT_PARTS=1024`
-  regroups by the dsort bucket, which is FastGA's layout. It is safe with the
-  unmodified `msd_sort`: its seam code reads `LCP_Table[x ^ n]` only when parts
-  x and n share bits 8–9, so x ^ n < 256; those byte-0 values are overwritten
-  anyway. More than 1,024 parts would read past `LCP_Table`, so finer parts
-  would need a `lib/` change and were not done. `PGA_SORT_THREADS=n` uses n
-  threads; the bench's `tphys` uses the rank's physical cores (`-c / 2`).
+- **Now the default: 1,024 parts** (`PGA_SORT_PARTS=256` restores the old
+  layout). This regroups by the dsort bucket, FastGA's layout. It is safe with
+  the unmodified `msd_sort`: its seam code reads `LCP_Table[x ^ n]` only when
+  parts x and n share bits 8–9, so x ^ n < 256; those byte-0 values are
+  overwritten anyway. More than 1,024 part indices would read past
+  `LCP_Table`.
+- **Now the default: heavy-part split** (`PGA_SORT_HEAVY=0` disables it). A
+  part holding more than 1/threads of the rank's records (and ≥ 65,536) is
+  regrouped stably into 256 sub-parts on the next 8 key bits. All light parts
+  and sub-parts are then merged, in key order, into ≤ 1,001 contiguous
+  segments for **one** `msd_sort` call. Segment boundaries are key boundaries,
+  so the result is sorted and the (k-mer, LCP) sequence is unchanged (SO-06,
+  and the bench `kseq` digests). Measured: on human the AAAAA bucket
+  (100,227,207 records) was the slowest rank's only large part at 64, 128 and
+  256 ranks and took 5.2–5.5 s on one thread. The split cuts the slowest
+  rank's `msd_sort` to 4.42 / 3.19 / 3.37 s. What remains is AAAAAAAAA, 33% of
+  the bucket, as predicted from the histogram.
+- `PGA_SORT_THREADS=n` uses n threads (default 4). Alone it does nothing,
+  because parts, not threads, were the limit. Combined with 1,024 parts and
+  the split it gains 2–6% (human 64: 13.13 → 12.81 s). It is not the default,
+  because the right value is the rank's physical cores (`-c / 2` under
+  `--cpu-bind=cores`) and the code cannot know the placement. Job scripts
+  should set it; gold matched with it (`phys`).
+- **Defects in FastGA's `msd_sort`** found while testing (`lib/MSDsort.c`,
+  upstream, not changed):
+  - it creates one thread per part and never joins or detaches them, so each
+    exited thread keeps its stack mapping;
+  - it ignores `pthread_create`'s return value;
+  - it waits with `if (Tavail <= 0) pthread_cond_wait(...)`, not `while`;
+  - it re-initialises its static mutex and condition variable on every call,
+    while the previous call's last worker may still be inside
+    `pthread_cond_signal`.
+
+  Together they make a process hang once it has created about 32 k threads
+  (`vm.max_map_count` = 65,530 mappings; observed in a unit test at exactly
+  65,530). Back-to-back calls are also unsafe. Production calls `msd_sort`
+  once per process with ≤ 1,024 threads, so it is unaffected. The heavy-part
+  path keeps to one call for this reason, and the sort unit tests run each
+  test in a forked child. Worth reporting to FastGA's authors.
 
 ---
 
-## 7. Changes implemented
+## 7. Changes implemented and their measured effect
 
-All on `r3-extract-sort`; build defaults change only where marked.
+All on `r3-extract-sort`. Each default can be switched back by environment
+variable, so the pre-R3 path is still available in the same binary.
 
-| change | default | correctness argument | tests |
-|---|---|---|---|
-| `MPI_Barrier` after extraction (cherry-pick 26b80da) | on | timing only | — |
-| `[r3-s2]` per-rank substage line; `PGA_BUCKET_HIST` | on / off | read-only | M-07 checks the byte counters |
-| `run_stage2_take`: free the extraction buffer after packing (`PGA_STAGE2_KEEP_LOCAL=1` = old) | **on** in `pga-mpi-merge` | the buffer is never read after `organize_send_buffer`; same bytes sent | M-07: slices byte-identical to `run_stage2`, input emptied |
-| `PGA_SORT_PARTS=1024` | off | each 10-bit part is a union of whole equal-prefix runs and parts are in key order, so concatenated sorted parts are sorted; the (k-mer, LCP) sequence is identical | SO-01..05 (incl. ASan), M-07 |
-| `PGA_SORT_THREADS=n` | off (4) | threads sort disjoint parts | SO-01, SO-04/05 |
-| `PGA_SPLITTER=optimal` (min-max contiguous split) | off | same invariants as the greedy map (monotone, contiguous, whole buckets, deterministic) | S-10: invariants, ≤ greedy, minimal; M-07 |
-| `PGA_EXCHANGE_LARGE_COUNT=1` (`MPI_Alltoallv_c`) | off | same counts and displacements, 64-bit | test_chunked_mpi large-count cases |
-| `pga-dsort-bench`, `pga-prefix-hist`, scripts | — | tools | digests in every bench run |
+| change | default | switch back | correctness argument | tests |
+|---|---|---|---|---|
+| `MPI_Barrier` after extraction (26b80da) | on | — | timing only | — |
+| `[r3-s2]` per-rank substage line; `PGA_BUCKET_HIST` dump | on / off | — | read-only | M-07 checks the byte counters |
+| `run_stage2_take`: extraction buffer freed after packing | **on** | `PGA_STAGE2_KEEP_LOCAL=1` | the buffer is never read after `organize_send_buffer`; same bytes sent | M-07 (slices byte-identical to `run_stage2`, input emptied) |
+| exchange by one `MPI_Alltoallv_c` (contiguous buffers only) | **on** | `PGA_EXCHANGE_LARGE_COUNT=0` | same counts and displacements, 64-bit; seed exchange (file callbacks) unchanged | test_chunked_mpi large-count cases (MPI tier) |
+| 1,024 sort parts (FastGA's layout) | **on** | `PGA_SORT_PARTS=256` | parts are contiguous key ranges in order | SO-01..05 (+ASan), M-07 |
+| heavy-part split, one `msd_sort` call | **on** | `PGA_SORT_HEAVY=0` | sub-parts and segments are contiguous key ranges in order | SO-06 (+ mutation), bench digests |
+| `PGA_SORT_THREADS=n` | 4 | — | threads sort disjoint parts | SO-01, SO-04/05 |
+| `PGA_SPLITTER=optimal` | off | — | same invariants as the greedy map | S-10, M-07 |
+| `pga-dsort-bench`, `pga-prefix-hist`, `r3_*.py` | — | — | tools | digests in every bench run |
 
-### 7.1 Expected effects (to be confirmed — PENDING RUN)
+### 7.1 Benchmark design
 
-| change | where it acts | predicted effect, human 64 ranks |
-|---|---|---|
-| take | stage-2 memory | −4.1 GB/rank peak (−29%); time ≈ 0 |
-| large-count | exchange copies, staging | −2 GiB/rank; removes two memcpy passes (≈ 2 × 3.8 GB per rank) from the 4.2 s exchange |
-| 1,024 parts | local sort | up to −40% of the slowest rank's sort if thread-bound (model: worst-rank makespan 3.96 → 2.24 × ideal); less if memory-bound |
-| physical-core threads | local sort | up to 2× more cores (8 vs 4); bounded by memory bandwidth |
-| optimal splitter | slowest slice | −10.6% largest slice → local sort and exchange of the slowest rank |
+`jobs/r3/r3_dsort_bench.sbatch`: `pga-dsort-bench` = extraction, barrier,
+stage 2, barrier, digests. Variants are interleaved inside one allocation,
+3 repeats each, in the report placement (`-c = 256 / ranks-per-node`,
+`--cpu-bind=cores`). Tables report medians. The min–max spread over the 3
+repeats was ≤ 1% of the median in 101 of 118 cells and ≤ 2.4% in all
+(`r3_bench_summary.py --tsv` has min and max). Sort wall = time between the
+two barriers.
 
-Even if all of these work fully, the sort stage is 9% (human 64) and 0.4%
-(primates14 64) of end-to-end time, so the end-to-end gain is at most a few
-percent on human and negligible on primates14. Memory is the larger benefit.
+### 7.2 Round 1 — each option on its own (build f57b432; old defaults; jobs 61880928–61880939)
 
-### 7.2 Benchmark design (`jobs/r3/r3_dsort_bench.sbatch`)
+Sort-stage wall time (s):
 
-Each run is `pga-dsort-bench`: extraction, barrier, `run_stage2(_take)`,
-barrier, digests. Variants (`old take p1024 tphys p1024tphys large r256M r4G
-opt all`) are interleaved within one allocation, 3 repeats. Configurations:
-yeast7 1×8; primates14 1×16, 2×32, 4×64; human 4×32, 4×64, 4×128, 8×128,
-8×256. Report placement throughout. Report medians and min–max.
+| config | old | take | 1,024 parts | phys. threads | 1,024 + threads | large-count | 256 MiB rounds | 4 GiB rounds | optimal split | all |
+|---|---|---|---|---|---|---|---|---|---|---|
+| human 32 r / 4 n | 23.37 | 23.32 | 20.61 | 23.18 | 19.03 | 21.89 | 23.16 | 23.46 | 23.18 | 17.71 |
+| human 64 r / 4 n | 17.59 | 17.58 | 14.61 | 17.56 | 14.72 | 16.60 | 17.40 | 17.69 | 17.15 | 13.84 |
+| human 128 r / 4 n | 14.21 | 14.16 | 14.37 | 14.19 | 14.35 | 13.20 | 14.13 | 14.21 | 14.20 | 13.40 |
+| human 128 r / 8 n | 11.08 | 11.13 | 11.07 | 11.10 | 11.07 | 10.45 | 11.10 | 11.08 | 11.09 | 10.45 |
+| human 256 r / 8 n | 11.55 | 11.56 | 11.62 | 11.54 | 11.63 | 10.91 | 11.48 | 11.56 | 13.04 | 12.49 |
+| primates14 16 r / 1 n | 9.81 | 9.81 | 9.11 | 9.26 | 8.39 | 8.69 | 9.74 | 9.94 | 9.82 | 7.37 |
+| primates14 32 r / 2 n | 6.76 | 6.76 | 5.84 | 6.73 | 5.56 | 6.19 | 6.67 | 6.95 | 6.60 | 5.05 |
+| primates14 64 r / 4 n | 4.99 | 4.99 | 4.19 | 5.00 | 4.17 | 4.64 | 5.00 | 5.11 | 5.00 | 3.90 |
+| yeast7 8 r / 1 n | 0.40 | 0.41 | 0.39 | 0.33 | 0.32 | 0.40 | 0.41 | 0.41 | 0.40 | 0.31 |
 
-### 7.3 Correctness criteria
+Slowest rank's `msd_sort` and exchange transfer (s):
 
-- Bench: `kseq` (Σ hash(global index, k-mer, LCP)) and `multi` (record
-  multiset) must have **one value per dataset across every variant and rank
-  count**. `order` (which also fixes the order of equal k-mers) is expected to
-  change with 1,024 parts and with rank count; that order was never specified,
-  and the end-to-end output does not depend on it (O1-0 shuffle test, and the
-  36/36 gold matches at different rank counts, which already permute it).
-- End-to-end: `jobs/r3/r3_gold.sbatch`, sorted byte-for-byte PAF against the
-  original FastGA gold, duplicates kept, for `default` (take on) and `fast`
-  (1,024 parts + physical-core threads + large-count + optimal splitter) on
-  yeast7 1/8, primates4 4/16, primates14 64, human 32/64, plus a `keep`
-  control on human 32.
-- Single-process smoke test on the login node (yeast7, all variants): `kseq`
-  and `multi` identical for all six variants tried; `order` differs only for
-  1,024 parts, as expected; stage-2 peak 2.98 → 1.99 GB with take.
+| config | msd: 256 parts | 1,024 | 1,024 + threads | exchange: rounds (1 GiB) | `Alltoallv_c` |
+|---|---|---|---|---|---|
+| human 32 | 9.61 | 6.92 | 5.50 | 4.63 | 3.27 |
+| human 64 | 8.36 | 5.43 | 5.41 | 3.87 | 2.94 |
+| human 128 / 8 n | 5.24 | 5.22 | 5.21 | 2.39 | 1.76 |
+| human 256 / 8 n | 5.47 | 5.47 | 5.48 | 2.72 | 2.04 |
+| primates14 16 | 3.59 | 2.81 | 2.08 | 1.65 | 0.60 |
+| primates14 64 | 2.10 | 1.30 | 1.29 | 0.89 | 0.55 |
 
-### 7.4 Results — PENDING RUN
+Findings:
+- **take** costs no time and saves 31–38% per-rank memory.
+- **1,024 parts** is the largest single gain at ≤ 64 ranks.
+- **Extra threads** help only together with more parts.
+- **`Alltoallv_c`** wins everywhere, both by dropping the staging copies and
+  through the library's own algorithm.
+- **Round budget:** 256 MiB is marginally faster and lighter than 1 GiB; 4 GiB
+  is slower and heavier.
+- **The optimal splitter** gains ≤ 0.4 s at 64 ranks and loses 1.5 s at 256.
+  There the AAAAA bucket fixes the max, so min-max filling pushes many ranks
+  up to that max and leaves 129 empty.
+- From 64 ranks up, `msd_sort` stays at 5.2–5.5 s whatever the setting. The
+  slowest rank is the one holding the AAAAA bucket as a single part, which led
+  to the heavy-part split.
 
-To be filled from `~/pga-r3-results/*/bench.tsv` and `gold.tsv`.
+### 7.3 Round 3 — final defaults (build eec599b/93d70dd; jobs 61883641–61883670)
 
----
+`pre` = every R3 change off; `noheavy` = final defaults without the heavy-part
+split; `phys` = final defaults + `PGA_SORT_THREADS` = physical cores per rank.
+
+| config | pre | noheavy | **default** | phys | default vs pre | msd: pre → default | per-rank peak: pre → default |
+|---|---|---|---|---|---|---|---|
+| human 32 r / 4 n | 22.99 | 19.04 | **17.95** | 16.94 | −22% | 9.62 → 5.90 | 22.88 → 14.21 GB |
+| human 64 r / 4 n | 17.97 | 14.02 | **13.13** | 12.81 | −27% | 8.35 → 4.42 | 14.07 → 8.66 GB |
+| human 128 r / 8 n | 11.09 | 10.48 | **8.34** | 8.01 | −25% | 5.25 → 3.19 | 9.46 → 5.64 GB |
+| human 256 r / 8 n | 11.54 | 10.95 | **8.79** | 8.78 | −24% | 5.46 → 3.37 | 6.82 → 4.62 GB |
+| primates14 16 r / 1 n | 9.81 | 8.02 | **8.03** | 7.04 | −18% | 3.59 → 2.81 | 11.52 → 7.48 GB |
+| primates14 64 r / 4 n | 4.86 | 3.73 | **3.43** | 3.26 | −29% | 2.10 → 0.98 | 6.74 → 4.77 GB |
+| yeast7 8 r / 1 n | 0.41 | 0.39 | **0.39** | 0.32 | −5% | 0.15 → 0.13 | 0.42 → 0.29 GB |
+
+Sort-stage strong scaling, human, default: 32 → 64 ranks (same 4 nodes)
+68% (pre: 64%); 64 ranks / 4 nodes → 128 ranks / 8 nodes 79%; 128 → 256 ranks
+on 8 nodes none (8.34 → 8.79 s), the five-base floor of §3.
+
+### 7.4 End-to-end correctness and effect
+
+32 gold runs, all `gold=MATCH` (sorted byte-for-byte PAF against the original
+FastGA gold, duplicates kept):
+
+| round | build | variants | configurations | result |
+|---|---|---|---|---|
+| 1 | f57b432 | `default` (take), `fast` (1,024 parts + phys. threads + large-count + optimal split), `keep` | yeast7 1/8, primates4 4/16, primates14 64, human 32/64 (+ `keep` human 32) | 15/15 MATCH |
+| 2 | cc9c5bc | new defaults (1,024 parts + large-count) | same 7 | 7/7 MATCH |
+| 3 | 93d70dd | final defaults (+ heavy split); `phys` | same 7; `phys` on primates14 64, human 32/64 | 10/10 MATCH |
+
+Multi-rank MPI tier: PASS on all three builds (1, 2, 3, 4, 8 ranks, incl. M-07
+and the large-count cases; M-06 made 4 comparisons). Sort-index digests: one
+(`kseq`, `multi`) pair per dataset over 357 bench runs (human 198, primates14
+114, yeast7 45), across every variant and 8–256 ranks.
+
+End-to-end sort stage (gold jobs, one run each, barrier build):
+
+| config | pre-R3 sweep (corrected) | final default | phys | per-rank peak (whole run) |
+|---|---|---|---|---|
+| human 32 | 22.14 | 18.26 | 17.18 | 22.87 → 14.21 GB |
+| human 64 | 16.78 | 13.16 | 13.29 | 14.06 → 8.66 GB |
+| primates14 64 | 4.76 | 3.58 | 3.33 | 6.73 → 5.25 GB |
+
+The end-to-end wall time is dominated by alignment, whose run-to-run spread
+on these single runs (±1–2%) is as large as the sort-stage saving (4–5 s on
+human, 1 s on primates14). Claim the saving for the sort stage and the memory
+reduction, not for end-to-end time.
 
 ## 8. P2 — overlap and the chunked exchange
 
@@ -507,16 +637,18 @@ for memory, and overlap would come with it.
 - **Above 32-bit limits:** displacements within a round are bounded by budget
   (≤ INT_MAX enforced by `xchg_chunk_cap`); totals are `int64`. Correct at any
   size (R-06 tests mixed budgets down to one record per peer).
-- **`MPI_Alltoallv_c`:** cray-mpich 9.1.0 is MPI 4.1 and provides it.
+- **`MPI_Alltoallv_c` (now the default):** cray-mpich 9.1.0 is MPI 4.1 and provides it.
   `MPI_Count` counts and `MPI_Aint` displacements remove the rounds, the 2 GiB
   staging and the two staging copies (each byte is copied into send staging and
   out of receive staging). It does **not** remove the send or receive buffers.
-  Implemented opt-in (`PGA_EXCHANGE_LARGE_COUNT=1`), only when both sides are
-  contiguous (stage 2), so the file-streamed seed exchange is unchanged.
-  Whether cray-mpich's large-count path is as fast as its regular
-  `Alltoallv` at these sizes is what the `large` variant measures (PENDING RUN).
-- **Budget:** `r256M` and `r4G` variants measure sensitivity; expected small
-  (rounds are few and each round is GB-sized).
+  Used only when both sides are contiguous (stage 2), so the file-streamed
+  seed exchange is unchanged; `PGA_EXCHANGE_LARGE_COUNT=0` restores the rounds.
+  Measured (§7.2): faster in every configuration (human 32: 4.63 → 3.27 s;
+  human 128 on 8 nodes: 2.39 → 1.76 s; primates14 16: 1.65 → 0.60 s), and
+  −2 GiB per rank.
+- **Budget** (with rounds): 256 MiB is 0.1–0.2 s faster than 1 GiB and saves
+  1.6 GB per rank; 4 GiB is 0.1–0.4 s slower and costs 2 GB more. Rounds are
+  not free; the copies through staging are what they cost.
 - **Extra copies avoidable without MPI-4?** Only by sending directly from the
   send buffer with per-round displacement offsets, which `int` displacements
   forbid once the buffer exceeds 2 GiB. A derived datatype
@@ -694,10 +826,13 @@ R3 task description; map them one-to-one once the list is pasted.*
    the same correctness argument (§9).
 2. **Why is sorting speedup weak from 32 to 64 ranks?** Both runs use the
    same 4 nodes. The exchange is bound by node network bandwidth and does not
-   shrink (4.6 → 4.2 s). The local sort (56% of the stage) shrinks 1.31×: the
-   largest slice shrinks only 1.79×, and per-rank sort throughput falls
-   because each rank's slice has fewer parallel parts for `msd_sort` and twice
-   as many threads share each node's memory bandwidth. Efficiency 66%.
+   shrink (4.6 → 4.2 s). The local sort (56% of the stage) shrank only 1.31×.
+   `msd_sort` sorts each part on one thread; with 256 first-byte parts a
+   64-rank slice has ~5 parts, and the rank holding the poly-A bucket sorts it
+   on a single thread. Giving it FastGA's own 1,024 parts and splitting heavy
+   parts cut the stage by 22–29% (human 64: 17.97 → 13.13 s) with identical
+   output. Efficiency was 66%; it is now 68% at fixed nodes and 79% when nodes
+   double (64 r / 4 n → 128 r / 8 n).
 3. **Which radix sort?** FastGA's own MSD radix sort (`MSDsort.c`): in place,
    most significant byte first, keys = the 10 packed k-mer bytes, one thread
    per pre-grouped part, LCPs recomputed afterwards (§6).
@@ -705,10 +840,12 @@ R3 task description; map them one-to-one once the list is pasted.*
    on primates). FastGA builds its index out of core (4.7 GB) and its
    alignment needs 15 GB on human. We keep the 206 GB index in RAM, about three
    times over during the sort, spread over 32–64 ranks, plus 2 GiB of exchange
-   staging per rank. Per rank we use 14–23 GB, about FastGA's single-process
-   peak. Freeing the extraction buffer early lowers this to ~32–38×; the
-   large-count exchange lowers it further. Reaching ~14× needs a streaming
-   exchange (§5.4).
+   staging per rank. Per rank we used 14–23 GB, about FastGA's single-process
+   peak. Freeing the extraction buffer after packing and exchanging with
+   `MPI_Alltoallv_c` (no staging) brought the sum to 27.6× / 29.0× (human 32 /
+   64) and the per-rank peak to 14.2 / 8.7 GB. Going much lower needs a
+   streaming exchange (~1× the index, §5.4) or an out-of-core index as in
+   FastGA.
 5. **Can communication overlap computation?** Possible at three points.
    Bounded by the exchange time: ≤ 2.2% of end-to-end on human, < 0.1% on
    primates14. Not worth an asynchronous design (§8.1).
@@ -716,8 +853,11 @@ R3 task description; map them one-to-one once the list is pasted.*
    12-base groups and break the frequency cutoff (it would count partial
    groups), and would break the sorted index. Hashing on the 12-base prefix
    would be exact (§9.4) but gains nothing over a deeper contiguous prefix,
-   which keeps the global order. Heavy-k-mer handling is unnecessary: the
-   largest indivisible unit (a 12-base group) is 0.175% of the records.
+   which keeps the global order. Heavy handling across ranks is unnecessary:
+   the largest indivisible unit (a 12-base group) is 0.175% of the records.
+   Heavy buckets *within a rank* did matter. The poly-A bucket was sorted by
+   one thread, and splitting it (§6) is our counterpart of HySortK's
+   heavy-k-mer treatment, done without changing the order.
 
 ---
 
@@ -731,6 +871,8 @@ R3 task description; map them one-to-one once the list is pasted.*
   the production splitter, optimal contiguous five-base split, and eight-base
   split; extraction split alongside.
 - Figure (`r3_stage2_breakdown.pdf`): sort-stage decomposition.
+- Figure (`r3_sort_before_after.pdf`): sort stage and per-rank stage-2 memory,
+  pre-R3 vs. R3 defaults, human 32–256 ranks and primates14 16/64 ranks.
 - Text: "At 64 ranks the largest sorted slice is 18% above the mean; an
   optimal split of the same buckets reduces this to 5%. Imbalance is therefore
   not caused by the prefix distribution below about 100 ranks, but the
@@ -739,7 +881,14 @@ R3 task description; map them one-to-one once the list is pasted.*
 - Memory: report per-rank peak and aggregate side by side, and FastGA's
   index and alignment peaks separately. State that the aggregate counts the
   in-memory index replicas and that FastGA's index is out of core.
-- Do not claim speedups from the §7 options until §7.4 is filled.
+- Sort stage, from §7.3: "Freeing the record buffer after packing,
+  exchanging with a single large-count \texttt{MPI\_Alltoallv\_c}, giving the
+  radix sort FastGA's 1,024-part layout and splitting heavy (poly-A/T) parts
+  reduce the sort stage by 22--29\% and its per-rank memory by 38\% (hsapiens90,
+  64 ranks: 17.97 to 13.13 s, 14.1 to 8.7 GB), with byte-identical output."
+- End-to-end: report the sort-stage and memory gains; the end-to-end time is
+  alignment-bound, and these gains are within the alignment's run-to-run
+  spread.
 
 ---
 
@@ -771,36 +920,45 @@ already does this within one rank and is the template.
   and two `ncontig²` maps are live (`contig_assignment.c`,
   `pga-mpi-merge.c`). Saksham's area.
 - **Sort side, no hard cap:** `compute_destination_map`, the Allgather in
-  the boundary check, and `chunked_alltoallv` all work for any P (bench runs at
-  128 and 256 ranks PENDING). Rounds and staging scale with `budget / P`.
+  the boundary check, and the exchange all work for any P; the bench ran 128
+  and 256 ranks (4 and 8 nodes) with identical digests.
 - **Soft limits, in order of onset (human):** whole-contig extraction (1.35 at
   64, 1.75 at 128); five-base buckets (floor 1.12 at 128, 2.24 at 256; P >
-  1,024 leaves ranks empty); `msd_sort` parallelism (≤ 2.7 parts per rank at
-  128 with 256 parts, ~8 with 1,024); per-rank fixed memory (2 GiB staging +
-  128 MiB adapter index).
-- **Needed for 128+ ranks on the extraction/sort side:** (1) deeper
-  contiguous prefix buckets (8 bases = 65,536 buckets: histogram Allreduce
-  512 KiB, everything else unchanged; keep `PGA_SORT_PARTS` at 1,024 because
-  of `LCP_Table`); (2) sub-contig extraction split; (3) large-count exchange,
-  to drop staging; (4) sort threads = physical cores per rank. (1) and (2) are
-  not implemented. Their benefit is nil below ~100 ranks and their correctness
-  argument is in §9 (for 1) and the existing window logic (for 2).
+  1,024 leaves ranks empty). Measured: 256 ranks on 8 nodes is slower than
+  128 (8.79 vs 8.34 s). The slowest rank still holds AAAAA, whose largest
+  9-base group (AAAAAAAAA, 33 M records) is now its indivisible sort unit.
+  Per-rank fixed memory remains (128 MiB adapter index, MPI).
+- **Needed for 128+ ranks on the extraction/sort side:**
+  1. deeper contiguous prefix buckets (8 bases = 65,536 buckets: the
+     histogram Allreduce grows to 512 KiB, everything else is unchanged); the
+     sort keeps its own ≤ 1,024 parts;
+  2. a sub-contig extraction split;
+  3. sort threads = physical cores per rank, set in the job script.
+
+  (1) and (2) are not implemented. Their benefit is nil below ~100 ranks, and
+  their correctness rests on §9 (for 1) and the existing window logic (for 2).
+  The large-count exchange and the heavy-part split are done.
 
 ---
 
 ## 13. Risks and next steps
 
-1. Submit `jobs/r3/submit_r3.sh all` (25 jobs: 9 bench, 15 gold, 1 MPI tier).
-2. Fill §7.4 from `bench.tsv` / `gold.tsv`. Decide the defaults:
-   `PGA_SORT_PARTS=1024` (FastGA's layout) and physical-core threads if they
-   help and gold matches. Same for `optimal` and large-count.
-3. If 1,024 parts become the default, fix the `sort_records` comment and
-   re-run the 12-configuration gold sweep.
-4. Coordinate with Saksham before touching `pga-mpi-merge.c` further. This
-   branch changes only the extraction/sort block (lines ~330–375).
-5. Deferred: deeper prefix buckets and sub-contig extraction (only for 128+
-   ranks); streaming exchange (only if memory binds).
-6. Risks: `MPI_Alltoallv_c` performance in cray-mpich is unknown, so it is
-   opt-in. Changing the tie order of equal k-mers (1,024 parts) is believed
-   output-neutral (O1-0 shuffle test, cross-rank-count gold matches) but must
-   be confirmed by the `fast` gold runs before becoming a default.
+1. **Merge:** open a PR from `r3-extract-sort`. It touches `pga-mpi-merge.c`
+   only in the extraction/sort block (~lines 330–375); tell Saksham before he
+   rebases O3.
+2. **Report numbers:** the report's stage tables come from the pre-R3 sweep.
+   Re-running the 12-configuration sweep on this branch would give
+   end-to-end numbers with the new defaults (sort and memory change;
+   alignment does not).
+3. **Job scripts:** set `PGA_SORT_THREADS` to the rank's physical cores
+   (`-c / 2`); measured gain 0–12% of the sort stage on human/primates14 (18% on yeast7), gold-validated (`phys`).
+4. **Deferred** (only for ≥ 128 ranks): deeper prefix buckets (§12.2), a
+   sub-contig extraction split, a second level of heavy-part splitting for
+   AAAAAAAAA. Streaming exchange only if memory becomes binding.
+5. **Upstream:** report the `msd_sort` threading defects (§6) to FastGA's
+   authors.
+6. **Risks:** the order of equal k-mers changes with the new sort layout.
+   That order was never specified, and 32/32 gold runs and the O1-0 shuffle
+   test show the output does not depend on it. Any future code that reads
+   equal-k-mer order would need re-validation. `MPI_Alltoallv_c` needs
+   MPI ≥ 4 (compile-time guard; older MPIs fall back to rounds).

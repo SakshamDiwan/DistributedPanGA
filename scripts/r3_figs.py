@@ -6,6 +6,7 @@
   r3_balance_vs_ranks.pdf  max/mean rank load vs rank count: 5-base greedy (production), 5-base optimal,
                          8-base optimal; and the whole-contig extraction split
   r3_stage2_breakdown.pdf  critical-path decomposition of the sort stage (existing sweep logs)
+  r3_sort_before_after.pdf sort stage and stage-2 memory, pre-R3 vs R3 defaults (bench round 3)
 
 Usage: r3_figs.py --hist DIR [--results DIR] [--out report/fig]
 Colours: reference categorical order (blue, orange, aqua, yellow, magenta), fixed by role.
@@ -109,11 +110,32 @@ def fig_breakdown(results, out):
     ax.grid(axis="y", visible=False)
     fig.savefig(out, bbox_inches="tight"); plt.close(fig)
 
+def fig_before_after(tsv, out):
+    """Sort-stage wall time and per-rank stage-2 peak, pre-R3 vs final defaults (bench2 summary)."""
+    import csv
+    rows = {(r["dataset"], int(r["nodes"]), int(r["ranks"]), r["variant"]): r
+            for r in csv.DictReader(open(tsv), delimiter="\t")}
+    cfgs = [("hsapiens90", 4, 32), ("hsapiens90", 4, 64), ("hsapiens90", 8, 128), ("hsapiens90", 8, 256),
+            ("primates14", 1, 16), ("primates14", 4, 64)]
+    lab = [f"{'human' if d == 'hsapiens90' else d} {r}r/{n}n" for d, n, r in cfgs]
+    fig, axs = plt.subplots(1, 2, figsize=(6.5, 2.6))
+    x = np.arange(len(cfgs)); w = 0.38
+    for ax, key, ylab in ((axs[0], "sort_wall", "sort stage (s)"), (axs[1], "s2_peak", "stage-2 peak per rank (GB)")):
+        pre = [float(rows[c + ("pre",)][key]) for c in cfgs]
+        new = [float(rows[c + ("default",)][key]) for c in cfgs]
+        ax.bar(x - w / 2, pre, w, color=C[1], label="pre-R3", edgecolor="white", linewidth=1)
+        ax.bar(x + w / 2, new, w, color=C[0], label="R3 defaults", edgecolor="white", linewidth=1)
+        ax.set_xticks(x); ax.set_xticklabels(lab, fontsize=6.5, rotation=30, ha="right"); ax.set_ylabel(ylab)
+        ax.grid(axis="x", visible=False)
+    axs[0].legend(fontsize=7)
+    fig.tight_layout(); fig.savefig(out, bbox_inches="tight"); plt.close(fig)
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--hist", required=True)
     ap.add_argument("--results", default=os.path.expanduser("~/pga-report-results-order"))
     ap.add_argument("--out", default="report/fig")
+    ap.add_argument("--bench2", default=os.path.expanduser("~/pga-r3-results/bench2/summary.tsv"))
     a = ap.parse_args()
     h24, ctg = BA.load(a.hist, "hs")
     h10 = BA.coarsen(h24, 10)
@@ -121,6 +143,8 @@ def main():
     fig_rank_loads(h10, 64, os.path.join(a.out, "r3_rank_loads.pdf"))
     fig_balance(h24, ctg, os.path.join(a.out, "r3_balance_vs_ranks.pdf"))
     fig_breakdown(a.results, os.path.join(a.out, "r3_stage2_breakdown.pdf"))
+    if os.path.exists(a.bench2):
+        fig_before_after(a.bench2, os.path.join(a.out, "r3_sort_before_after.pdf"))
     print("wrote", ", ".join(f"r3_{x}.pdf" for x in ("bucket_hist", "rank_loads", "balance_vs_ranks", "stage2_breakdown")))
 
 if __name__ == "__main__":
