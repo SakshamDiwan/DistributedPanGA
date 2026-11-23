@@ -75,10 +75,8 @@ static inline void emit_tuple(TupleBuffer *buf, int contig, int64_t position, in
     memcpy(t->kmer, kmer, KBYTES);
 }
 
-// Generic emit callback: invoked once per syncmer emission with the validated
+// EmitFn (extract.h): invoked once per syncmer emission with the validated
 // packed k-mer and the stored position.  strand=0 for forward, 1 for RC.
-typedef void (*EmitFn)(void *user, int contig, int64_t position, int strand,
-                       const uint8_t *kmer);
 
 // Per-contig scan. Mirrors scan_thread in notes/GIXmake_dump.c (line 486+).
 // Variable names and control flow are kept verbatim where possible.
@@ -324,7 +322,7 @@ static void record_emit_cb(void *user, int contig, int64_t position, int strand,
 
 // --- Driver functions ------------------------------------------------------
 
-static void run_scan(GDB *gdb, int num_workers, int worker_id, EmitFn emit, void *user)
+void extract_scan(GDB *gdb, int num_workers, int worker_id, EmitFn emit, void *user)
 {
     int *split = (int *) malloc((num_workers + 1) * sizeof(int));
     int64_t *post = (int64_t *) malloc((num_workers + 1) * sizeof(int64_t));
@@ -352,10 +350,10 @@ static void run_scan(GDB *gdb, int num_workers, int worker_id, EmitFn emit, void
 
 void extract_to_tuples(GDB *gdb, int num_workers, int worker_id, TupleBuffer *buf)
 {
-    run_scan(gdb, num_workers, worker_id, tuple_emit_cb, buf);
+    extract_scan(gdb, num_workers, worker_id, tuple_emit_cb, buf);
 }
 
 void extract_to_records(GDB *gdb, int num_workers, int worker_id, RecordBuffer *buf)
 {
-    run_scan(gdb, num_workers, worker_id, record_emit_cb, buf);
+    extract_scan(gdb, num_workers, worker_id, record_emit_cb, buf);
 }

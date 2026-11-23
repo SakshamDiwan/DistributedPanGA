@@ -349,10 +349,20 @@ int main(int argc, char *argv[])
     RecordBuffer recv;
     memset(&recv, 0, sizeof(recv));
     mem_stage_end(MEM_EXTRACT);
-    run_stage2(&local, &recv, MPI_COMM_WORLD);
+    // run_stage2_take frees the extraction buffer as soon as it is packed
+    // (lower peak memory, same output). PGA_STAGE2_KEEP_LOCAL=1 keeps it to
+    // the end of the stage, as before, for A/B memory comparisons.
+    {
+        const char *keep = getenv("PGA_STAGE2_KEEP_LOCAL");
+        if (keep != NULL && strcmp(keep, "1") == 0)
+            run_stage2(&local, &recv, MPI_COMM_WORLD);
+        else
+            run_stage2_take(&local, &recv, MPI_COMM_WORLD);
+    }
     record_buffer_free(&local);
     t_sort = MPI_Wtime() - t_stage_start;
     mem_stage_end(MEM_STAGE2);
+    stage2_report(stderr, my_rank);
 
     fprintf(stderr, "[merge] rank %d: own slice has %lld records (sorted)\n",
             my_rank, (long long) recv.count);

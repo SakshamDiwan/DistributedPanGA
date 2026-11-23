@@ -1,6 +1,7 @@
 #ifndef DPGA_DSORT_H
 #define DPGA_DSORT_H
 
+#include <stdio.h>
 #include <stdint.h>
 #include <mpi.h>
 #include "extract.h"
@@ -81,8 +82,20 @@ void organize_send_buffer(const RecordBuffer *local, const int *select,
 // depends on the pre-sort order of equal k-mers.
 void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm);
 
+// Same as run_stage2, but takes ownership of `local` and frees its records as
+// soon as they have been copied into the send buffer (record_buffer_free; the
+// struct is left empty). Same records, same order, same output; the stage's
+// peak memory drops by the size of the extraction buffer.
+void run_stage2_take(RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm);
+
+// Optional dump, off by default: if PGA_BUCKET_HIST names a file, rank 0
+// writes the global bucket histogram and the bucket -> rank map there
+// ("bucket\tcount\trank", NUM_BUCK lines) after the Allreduce.
+
 // Per-rank phase times of the most recent run_stage2 call (O1-0
 // instrumentation; MPI_Wtime seconds, not reduced across ranks).
+// The coarse fields are kept as before; the finer ones split them so that
+// waiting in a collective can be told apart from local work.
 typedef struct {
     double hist_s;        // bucket_local_counts + Allreduce + destination map
     double pack_s;        // organize_send_buffer
@@ -92,9 +105,35 @@ typedef struct {
     double shuffle_s;     // PGA_PRESORT_SHUFFLE permutation (0 when unset)
     double local_sort_s;  // sort_records + recalc_all_lcps
     double verify_s;      // local/cross-rank checks + seam fixup
+
+    // R3 split of the above (sum of a group = its coarse field, up to timer reads).
+    double count_s;       // hist: bucket_local_counts (local work)
+    double allreduce_s;   // hist: Allreduce of the histogram (waits for the slowest rank)
+    double map_s;         // hist: compute_destination_map (local work)
+    double sizes_s;       // exchange: Alltoall of byte counts (waits for the slowest packer)
+    double xfer_s;        // exchange: recv alloc + chunked_alltoallv (the transfer)
+    double free_s;        // exchange: freeing send/extraction buffers
+    double rebucket_s;    // local sort: regroup by part (g_sort_timing)
+    double msd_s;         // local sort: msd_sort
+    double lcp_s;         // local sort: recalc_all_lcps
+    double check_s;       // verify: local order check (local work)
+    double boundary_s;    // verify: Allgather + Allreduce of boundary k-mers (waits)
+    int64_t sent_bytes;   // record bytes sent, including to this rank itself
+    int64_t self_bytes;   // ... of which stayed on this rank
+    int64_t recv_bytes;   // record bytes received
+    int     sort_threads, sort_parts, sort_nonempty_parts;
+    int64_t sort_largest_part;
+    int     took_local;   // 1 if the extraction buffer was freed after packing
+    // VmRSS / VmHWM (kB) sampled at substage ends: 0 start, 1 after pack,
+    // 2 after exchange (send buffer still live), 3 after frees, 4 after sort,
+    // 5 end. VmHWM is cumulative since the caller's last reset.
+    long rss_kb[6], hwm_kb[6];
 } Stage2Timing;
 
 extern Stage2Timing g_stage2_timing;
+
+// Print g_stage2_timing as one "[r3-s2] rank <r>: key=value ..." line.
+void stage2_report(FILE *f, int rank);
 
 // Walk recv->data, assert non-decreasing k-mer-byte order.
 // Returns: number of out-of-order pairs (0 = sorted). If first_bad is non-NULL

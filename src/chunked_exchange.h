@@ -50,7 +50,8 @@ typedef struct { uint8_t *buf; xchg_drain_fn drain; void *ctx; } XchgSink;
 
 typedef struct {
     int64_t rounds;          // 1 on the direct path
-    int     direct;          // 1 if a single MPI_Alltoallv was used
+    int     direct;          // 1 if a single MPI_Alltoallv was used,
+                             // 2 if one MPI_Alltoallv_c (PGA_EXCHANGE_LARGE_COUNT=1)
     int64_t cap;             // bytes per peer per round (chunked path)
     int64_t staging_bytes;   // send + receive staging allocated (chunked path)
     int64_t sent_bytes;
@@ -63,7 +64,9 @@ void xchg_exchange_sizes(const int64_t *send_bytes, int64_t *recv_bytes, MPI_Com
 // Collective. send_bytes/recv_bytes as from xchg_exchange_sizes; every size
 // must be a multiple of unit. The ranks use the minimum of their budgets. Uses one MPI_Alltoallv when every rank's send
 // and receive totals fit in the budget and both sides are contiguous buffers;
-// otherwise rounds. Aborts the job on allocation or planning failure.
+// otherwise rounds. With PGA_EXCHANGE_LARGE_COUNT=1 on every rank (MPI >= 4)
+// and contiguous buffers on every rank, one MPI_Alltoallv_c instead, whatever
+// the sizes (no staging). Aborts the job on allocation or planning failure.
 void chunked_alltoallv(const int64_t *send_bytes, const int64_t *recv_bytes,
                        int unit, int64_t budget,
                        const XchgSource *src, const XchgSink *dst,

@@ -34,6 +34,11 @@
 //   seam     R-01: forces an EMPTY rank between two populated ones, and at four
 //            ranks a trailing empty one too. Requires exactly 4 ranks.
 //   allempty every rank empty -- the degenerate case.
+//   take     M-07 (R3): run_stage2_take, which frees the extraction buffer
+//            right after packing, gives byte-identical slices to run_stage2
+//            and leaves the input buffer empty; and the sort settings
+//            PGA_SORT_PARTS=1024 / PGA_SORT_THREADS=3 give the same
+//            (k-mer, LCP) sequence. Input has duplicate k-mers and skew.
 //
 // EXIT STATUS is Allreduced so every rank returns the same code; otherwise
 // srun reports a confusing mix of successes and failures for one logical run.
@@ -68,6 +73,17 @@ static void gen_kmer(int64_t g, uint8_t *k)
         k[j] = (uint8_t) (x & 0xff);
     }
 }
+
+// M-07's input: ~1/3 of records share 40 k-mers whose first byte is 0x00
+// (skew into one bucket, many equal k-mers); the rest as gen_kmer.
+static void gen_kmer_dups(int64_t g, uint8_t *k)
+{
+    if (g % 3 == 0) { gen_kmer(g % 40, k); k[0] = 0x00; }
+    else gen_kmer(g, k);
+}
+
+// The generator check_global regenerates the expected input with.
+static void (*GEN)(int64_t, uint8_t *) = gen_kmer;
 
 static void fill_slice(RecordBuffer *b, int64_t lo, int64_t hi)
 {
@@ -172,7 +188,7 @@ static void check_global(const uint8_t *blob, int64_t n, int64_t total_in,
     want.v = malloc((size_t) (total_in ? total_in : 1) * sizeof(RefRec));
     want.cap = total_in; want.n = total_in;
     for (i = 0; i < total_in; i++) {
-        gen_kmer(i, want.v[i].kmer);
+        GEN(i, want.v[i].kmer);
         want.v[i].position = i % 1000000;
         want.v[i].contig   = (int) (i % 64);
         want.v[i].strand   = (int) (i & 1);
@@ -461,6 +477,72 @@ static void mode_seam(void)
     record_buffer_free(&recv);
 }
 
+// Mode "take" -- M-07: buffer-lifetime and sort-setting variants of stage 2.
+static void fill_slice_dups(RecordBuffer *b, int64_t lo, int64_t hi)
+{
+    int64_t i;
+    rb_alloc_exact(b, SZ, hi - lo);
+    for (i = lo; i < hi; i++) {
+        uint8_t k[KBYTES];
+        gen_kmer_dups(i, k);
+        rb_set(b, i - lo, k, i % 1000000, (int) (i % 64), (int) (i & 1), 0);
+    }
+}
+
+static void mode_take(void)
+{
+    const int64_t TOTAL = 6000;
+    int64_t lo = (TOTAL * RANK) / WS, hi = (TOTAL * (RANK + 1)) / WS;
+    RecordBuffer l1, r1, l2, r2, l3, r3;
+    uint8_t *b1, *b3; int64_t n1 = 0, n3 = 0;
+
+    GEN = gen_kmer_dups;
+    unsetenv("PGA_SORT_PARTS"); unsetenv("PGA_SORT_THREADS");
+    fill_slice_dups(&l1, lo, hi);
+    memset(&r1, 0, sizeof r1);
+    run_stage2(&l1, &r1, MPI_COMM_WORLD);
+    CHECK_EQ_I(g_stage2_timing.took_local, 0);
+    CHECK_EQ_I(l1.count, hi - lo);                 // run_stage2 leaves input alone
+    rb_free(&l1);
+
+    fill_slice_dups(&l2, lo, hi);
+    memset(&r2, 0, sizeof r2);
+    run_stage2_take(&l2, &r2, MPI_COMM_WORLD);
+    CHECK_EQ_I(g_stage2_timing.took_local, 1);
+    CHECK_MSG(l2.data == NULL && l2.count == 0 && l2.capacity == 0,
+              "run_stage2_take left the input buffer populated");
+    CHECK_EQ_I(r2.count, r1.count);
+    CHECK_MSG(r1.count == r2.count &&
+              memcmp(r1.data, r2.data, (size_t) (r1.count * SZ.record_size)) == 0,
+              "rank %d: run_stage2_take slice differs from run_stage2", RANK);
+    CHECK_EQ_I(g_stage2_timing.sent_bytes, (hi - lo) * SZ.record_size);
+    CHECK_EQ_I(g_stage2_timing.recv_bytes, r2.count * SZ.record_size);
+    record_buffer_free(&l2);                       // no-op on an emptied buffer
+    record_buffer_free(&r2);
+
+    setenv("PGA_SORT_PARTS", "1024", 1); setenv("PGA_SORT_THREADS", "3", 1);
+    fill_slice_dups(&l3, lo, hi);
+    memset(&r3, 0, sizeof r3);
+    run_stage2_take(&l3, &r3, MPI_COMM_WORLD);
+    CHECK_EQ_I(g_stage2_timing.sort_parts, 1024);
+    CHECK_EQ_I(g_stage2_timing.sort_threads, 3);
+    unsetenv("PGA_SORT_PARTS"); unsetenv("PGA_SORT_THREADS");
+
+    b1 = gather_all(&r1, &n1);
+    b3 = gather_all(&r3, &n3);
+    if (RANK == 0) {
+        check_global(b1, n1, TOTAL, "M-07 run_stage2 (dups)");
+        check_global(b3, n3, TOTAL, "M-07 take + 1024 parts + 3 threads");
+        int same = (n1 == n3);
+        for (int64_t i = 0; same && i < n1; i++)
+            same = memcmp(b1 + i * SZ.record_size, b3 + i * SZ.record_size, 1 + KBYTES) == 0;
+        CHECK_MSG(same, "M-07: (k-mer, LCP) sequence differs with 1024 parts / 3 threads");
+        free(b1); free(b3);
+    }
+    record_buffer_free(&r1);
+    record_buffer_free(&r3);
+}
+
 int main(int argc, char **argv)
 {
     const char *mode = (argc > 1) ? argv[1] : "uniform";
@@ -478,6 +560,7 @@ int main(int argc, char **argv)
     else if (strcmp(mode, "skew")    == 0) mode_skew();
     else if (strcmp(mode, "seam")    == 0) mode_seam();
     else if (strcmp(mode, "allempty") == 0) mode_allempty();
+    else if (strcmp(mode, "take")    == 0) mode_take();
     else { if (RANK == 0) printf("unknown mode %s\n", mode); MPI_Finalize(); return 2; }
 
     // Every rank must exit with the same status, or srun reports a confusing mix.

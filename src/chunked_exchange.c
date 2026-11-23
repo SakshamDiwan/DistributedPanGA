@@ -113,7 +113,37 @@ void chunked_alltoallv(const int64_t *send_bytes, const int64_t *recv_bytes,
     MPI_Allreduce(&mine, &worst, 1, MPI_INT64_T, MPI_MAX, comm);
     int contiguous = (src->buf != NULL && dst->buf != NULL), all_contig;
     MPI_Allreduce(&contiguous, &all_contig, 1, MPI_INT, MPI_MIN, comm);
-    if (all_contig && worst <= budget && worst <= INT_MAX)
+    // Opt-in MPI-4 large-count path (PGA_EXCHANGE_LARGE_COUNT=1): when both
+    // sides are contiguous buffers, one MPI_Alltoallv_c moves the same bytes
+    // with 64-bit counts -- no rounds, no staging buffers, no staging copies.
+    // Every rank must agree, so the flag is reduced with MIN like the budget.
+    int large = 0, all_large = 0;
+#if MPI_VERSION >= 4
+    {
+        const char *e = getenv("PGA_EXCHANGE_LARGE_COUNT");
+        large = (e != NULL && strcmp(e, "1") == 0);
+    }
+#endif
+    MPI_Allreduce(&large, &all_large, 1, MPI_INT, MPI_MIN, comm);
+    if (all_contig && all_large)
+    {
+#if MPI_VERSION >= 4
+        MPI_Count *sc = malloc(n * sizeof(MPI_Count)), *rc = malloc(n * sizeof(MPI_Count));
+        MPI_Aint  *sd = malloc(n * sizeof(MPI_Aint)),  *rd = malloc(n * sizeof(MPI_Aint));
+        if (!sc || !rc || !sd || !rd) die(comm, "out of memory for large-count arrays", n);
+        for (int p = 0; p < n; p++)
+        {
+            sc[p] = (MPI_Count) send_bytes[p]; sd[p] = (MPI_Aint) sprefix[p];
+            rc[p] = (MPI_Count) recv_bytes[p]; rd[p] = (MPI_Aint) rprefix[p];
+        }
+        MPI_Alltoallv_c((void *) src->buf, sc, sd, MPI_BYTE,
+                        dst->buf, rc, rd, MPI_BYTE, comm);
+        free(sc); free(rc); free(sd); free(rd);
+        st.rounds = 1;
+        st.direct = 2;
+#endif
+    }
+    else if (all_contig && worst <= budget && worst <= INT_MAX)
     {
         for (int p = 0; p < n; p++)
         {
