@@ -9,7 +9,7 @@
 //
 //   * the records are sorted by k-mer and none is lost or duplicated;
 //   * after recalc_all_lcps, the (k-mer, LCP) sequence is identical to the
-//     default (4 threads, 256 parts) -- that sequence is all the downstream
+//     pre-R3 setting (4 threads, 256 parts) -- that sequence is all the downstream
 //     merge sees apart from the payload of equal k-mers, whose relative order
 //     msd_sort never specified.
 //
@@ -185,18 +185,19 @@ static void so04_env(void)
 {
     unsetenv("PGA_SORT_THREADS"); unsetenv("PGA_SORT_PARTS");
     CHECK_EQ_I(sort_threads_from_env(), 4);
-    CHECK_EQ_I(sort_parts_from_env(), 256);
+    CHECK_EQ_I(sort_parts_from_env(), 1024);
     setenv("PGA_SORT_THREADS", "8", 1);   CHECK_EQ_I(sort_threads_from_env(), 8);
     setenv("PGA_SORT_THREADS", "0", 1);   CHECK_EQ_I(sort_threads_from_env(), 4);
     setenv("PGA_SORT_THREADS", "999", 1); CHECK_EQ_I(sort_threads_from_env(), 4);
     setenv("PGA_SORT_THREADS", "x", 1);   CHECK_EQ_I(sort_threads_from_env(), 4);
     setenv("PGA_SORT_PARTS", "1024", 1);  CHECK_EQ_I(sort_parts_from_env(), 1024);
-    setenv("PGA_SORT_PARTS", "4096", 1);  CHECK_EQ_I(sort_parts_from_env(), 256);
-    setenv("PGA_SORT_PARTS", "", 1);      CHECK_EQ_I(sort_parts_from_env(), 256);
+    setenv("PGA_SORT_PARTS", "256", 1);   CHECK_EQ_I(sort_parts_from_env(), 256);
+    setenv("PGA_SORT_PARTS", "4096", 1);  CHECK_EQ_I(sort_parts_from_env(), 1024);
+    setenv("PGA_SORT_PARTS", "", 1);      CHECK_EQ_I(sort_parts_from_env(), 1024);
     unsetenv("PGA_SORT_THREADS"); unsetenv("PGA_SORT_PARTS");
 }
 
-// SO-05 -- sort_records() with the environment unset is the 4/256 default,
+// SO-05 -- sort_records() with the environment unset is the 4/1024 default,
 // and with it set follows it.
 static void so05_sort_records_uses_env(void)
 {
@@ -206,12 +207,12 @@ static void so05_sort_records_uses_env(void)
     unsetenv("PGA_SORT_THREADS"); unsetenv("PGA_SORT_PARTS");
     sort_records(&a);
     CHECK_EQ_I(g_sort_timing.threads, 4);
-    CHECK_EQ_I(g_sort_timing.parts, 256);
+    CHECK_EQ_I(g_sort_timing.parts, 1024);
     RecordBuffer b = clone(&in);
-    setenv("PGA_SORT_THREADS", "3", 1); setenv("PGA_SORT_PARTS", "1024", 1);
+    setenv("PGA_SORT_THREADS", "3", 1); setenv("PGA_SORT_PARTS", "256", 1);
     sort_records(&b);
     CHECK_EQ_I(g_sort_timing.threads, 3);
-    CHECK_EQ_I(g_sort_timing.parts, 1024);
+    CHECK_EQ_I(g_sort_timing.parts, 256);
     unsetenv("PGA_SORT_THREADS"); unsetenv("PGA_SORT_PARTS");
     recalc_all_lcps(&a); recalc_all_lcps(&b);
     CHECK(same_kmer_lcp_sequence(&a, &b));

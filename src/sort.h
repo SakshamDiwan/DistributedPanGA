@@ -9,9 +9,10 @@
 // and the LCP byte (byte 0) of each record holds msd_sort's LCP value.
 void sort_records(RecordBuffer *buf);
 
-// Same, with explicit thread count and part granularity (256 = first k-mer
-// byte, the default; 1024 = first five bases). sort_records reads them from
-// PGA_SORT_THREADS / PGA_SORT_PARTS (defaults 4 / 256).
+// Same, with explicit thread count and part granularity (1024 = first five
+// bases, the default and FastGA's layout; 256 = first k-mer byte, pre-R3).
+// sort_records reads them from PGA_SORT_THREADS / PGA_SORT_PARTS
+// (defaults 4 / 1024).
 void sort_records_opts(RecordBuffer *buf, int nthreads, int nparts);
 int  sort_threads_from_env(void);
 int  sort_parts_from_env(void);

@@ -191,6 +191,8 @@ int main(int argc, char **argv)
     if (rank == 0) printf("test_chunked_mpi (world size %d)\n", nranks);
 
     const char *mode_name[] = { "buffers", "memory callbacks", "file pread/pwrite" };
+    // The large-count path is the default; the chunked cases below need it off.
+    setenv("PGA_EXCHANGE_LARGE_COUNT", "0", 1);
     for (int mode = 0; mode < 3; mode++) {
         for (int u = 0; u < 2; u++) {
             int unit = u ? 9 : 16;
@@ -206,9 +208,10 @@ int main(int argc, char **argv)
             run_case(unit, XCHG_DEFAULT_ROUND_BYTES, mode, 0, label);
         }
     }
-    // R3: MPI-4 large-count path. Buffers take one MPI_Alltoallv_c whatever
-    // the budget; callbacks are unaffected and still chunk.
-    setenv("PGA_EXCHANGE_LARGE_COUNT", "1", 1);
+    // R3: MPI-4 large-count path (the default when the variable is unset).
+    // Buffers take one MPI_Alltoallv_c whatever the budget; callbacks are
+    // unaffected and still chunk.
+    unsetenv("PGA_EXCHANGE_LARGE_COUNT");
     expect_large = 1;
     for (int mode = 0; mode < 3; mode++) {
         for (int u = 0; u < 2; u++) {

@@ -66,14 +66,13 @@ void recalc_all_lcps(RecordBuffer *buf)
 
 SortTiming g_sort_timing;
 
-// Thread count and part granularity for sort_records. Defaults (4 threads,
-// 256 first-byte parts) are the original behaviour; the environment can
-// override them for experiments:
-//   PGA_SORT_THREADS = 1..256
-//   PGA_SORT_PARTS   = 256 (first k-mer byte) or 1024 (first 5 bases, the
-//                      dsort bucket). Only part boundaries change: each part
-//                      still holds whole runs of equal leading bytes, so the
-//                      concatenation of the sorted parts is sorted.
+// Thread count and part granularity for sort_records. Defaults: 4 threads,
+// 1024 parts (first 5 bases = the dsort bucket = the parts FastGA's GIXmake
+// hands msd_sort). The environment overrides them:
+//   PGA_SORT_THREADS = 1..256 (best: the rank's physical cores)
+//   PGA_SORT_PARTS   = 256 (first k-mer byte; the pre-R3 behaviour) or 1024.
+// Only part boundaries change: each part still holds whole runs of equal
+// leading bytes, so the concatenation of the sorted parts is sorted.
 int sort_threads_from_env(void)
 {
     const char *e = getenv("PGA_SORT_THREADS");
@@ -85,7 +84,7 @@ int sort_parts_from_env(void)
 {
     const char *e = getenv("PGA_SORT_PARTS");
     int v = (e != NULL && e[0] != '\0') ? atoi(e) : 0;
-    return (v == 1024) ? 1024 : 256;
+    return (v == 256) ? 256 : 1024;
 }
 
 void sort_records(RecordBuffer *buf)
@@ -110,9 +109,9 @@ void sort_records_opts(RecordBuffer *buf, int nthreads, int nparts)
     if (nparts != 1024) nparts = 256;
     if (nthreads < 1) nthreads = 1;
 
-    // Bucket the records by their leading bits (first k-mer byte by default)
+    // Group the records by their leading bits (first five bases by default)
     // so we hand msd_sort a contiguous-by-part layout and it can sort the parts
-    // in parallel, one thread per part. This matches FastGA's internal layout.
+    // in parallel, one thread per part. 1024 parts is FastGA's GIXmake layout.
     int64 bucket_count[1024];
     for (int i = 0; i < nparts; i++) bucket_count[i] = 0;
     for (int64 i = 0; i < buf->count; i++)

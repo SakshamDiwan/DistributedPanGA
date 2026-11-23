@@ -113,15 +113,15 @@ void chunked_alltoallv(const int64_t *send_bytes, const int64_t *recv_bytes,
     MPI_Allreduce(&mine, &worst, 1, MPI_INT64_T, MPI_MAX, comm);
     int contiguous = (src->buf != NULL && dst->buf != NULL), all_contig;
     MPI_Allreduce(&contiguous, &all_contig, 1, MPI_INT, MPI_MIN, comm);
-    // Opt-in MPI-4 large-count path (PGA_EXCHANGE_LARGE_COUNT=1): when both
-    // sides are contiguous buffers, one MPI_Alltoallv_c moves the same bytes
-    // with 64-bit counts -- no rounds, no staging buffers, no staging copies.
-    // Every rank must agree, so the flag is reduced with MIN like the budget.
+    // MPI-4 large-count path (default; PGA_EXCHANGE_LARGE_COUNT=0 turns it
+    // off): when both sides are contiguous buffers, one MPI_Alltoallv_c moves
+    // the same bytes with 64-bit counts -- no rounds, no staging buffers, no
+    // staging copies. Every rank must agree, so the flag is reduced with MIN.
     int large = 0, all_large = 0;
 #if MPI_VERSION >= 4
     {
         const char *e = getenv("PGA_EXCHANGE_LARGE_COUNT");
-        large = (e != NULL && strcmp(e, "1") == 0);
+        large = !(e != NULL && strcmp(e, "0") == 0);
     }
 #endif
     MPI_Allreduce(&large, &all_large, 1, MPI_INT, MPI_MIN, comm);
