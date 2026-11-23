@@ -36,6 +36,13 @@ r4G|PGA_EXCHANGE_ROUND_BYTES=4294967296
 opt|PGA_SPLITTER=optimal
 all|PGA_SORT_PARTS=1024,PGA_SORT_THREADS=PHYS,PGA_EXCHANGE_LARGE_COUNT=1,PGA_SPLITTER=optimal"}
 
+# Named variant sets (sbatch --export cannot carry the commas of a list).
+if [ "${R3_VARSET:-}" = heavy ]; then
+VARIANTS="pre|PGA_STAGE2_KEEP_LOCAL=1,PGA_SORT_PARTS=256,PGA_EXCHANGE_LARGE_COUNT=0,PGA_SORT_HEAVY=0
+noheavy|PGA_SORT_HEAVY=0
+default|
+phys|PGA_SORT_THREADS=PHYS"
+fi
 O=${R3_OUT:-$HOME/pga-r3-results}/$DS/n$NODES-r$N; mkdir -p "$O"
 RUN=$SCRATCH/pga-r3/$SLURM_JOB_NAME-$SLURM_JOB_ID; mkdir -p "$RUN"; cd "$RUN"
 echo "JOB $SLURM_JOB_ID  NODES $SLURM_JOB_NODELIST  DATE $(date -Is)"
