@@ -13,7 +13,7 @@
 set -uo pipefail
 module load cpu; module unload darshan
 export MPICH_GPU_SUPPORT_ENABLED=0
-R=$HOME/pga-build/r3
+R=${R3_BUILD:-$HOME/pga-build/r3}
 echo "repo: $(git -C $R rev-parse HEAD)  node: $SLURM_JOB_NODELIST"
 export TMPDIR=$SCRATCH/pga-r3/mpitest-$SLURM_JOB_ID; mkdir -p "$TMPDIR"
 export RANK_COUNTS="1 2 3 4 8"

@@ -13,12 +13,12 @@
 #SBATCH --output=/global/u2/h/hsc53/pga-jobs/r3/logs/%x.%j.log
 set -uo pipefail
 export FASTGA_DIR=$HOME/FASTGA                      # FastGA 178afcb
-R=$HOME/pga-build/r3; export BIN=$R/pga-mpi-merge
+R=${R3_BUILD:-$HOME/pga-build/r3}; export BIN=$R/pga-mpi-merge
 module load cpu; module unload darshan
 export PATH=$FASTGA_DIR:$PATH
 export MPICH_GPU_SUPPORT_ENABLED=0 OMP_NUM_THREADS=1
 export PGA_ALNTOPAF_TIMEOUT=3600
-unset  PGA_EXCHANGE_ROUND_BYTES PGA_PAIR_TASKS PGA_MEM_STAGE_RESET PGA_SORT_THREADS PGA_SORT_PARTS PGA_STAGE2_KEEP_LOCAL PGA_EXCHANGE_LARGE_COUNT PGA_SPLITTER
+unset  PGA_EXCHANGE_ROUND_BYTES PGA_PAIR_TASKS PGA_MEM_STAGE_RESET PGA_SORT_THREADS PGA_SORT_PARTS PGA_STAGE2_KEEP_LOCAL PGA_EXCHANGE_LARGE_COUNT PGA_SPLITTER PGA_SORT_HEAVY
 
 N=$SLURM_NTASKS; NODES=$SLURM_JOB_NUM_NODES
 (( N % NODES == 0 )) || { echo "ranks ($N) not divisible by nodes ($NODES)"; exit 1; }
@@ -28,6 +28,8 @@ VARIANT=${R3_VARIANT:-default}
 case $VARIANT in
   default) ;;
   keep)    export PGA_STAGE2_KEEP_LOCAL=1 ;;
+  phys)    export PGA_SORT_THREADS=$PHYS ;;
+  pre)     export PGA_STAGE2_KEEP_LOCAL=1 PGA_SORT_PARTS=256 PGA_EXCHANGE_LARGE_COUNT=0 PGA_SORT_HEAVY=0 ;;
   fast)    export PGA_SORT_PARTS=1024 PGA_SORT_THREADS=$PHYS PGA_EXCHANGE_LARGE_COUNT=1 PGA_SPLITTER=optimal ;;
   *) echo "unknown R3_VARIANT $VARIANT"; exit 1 ;;
 esac
