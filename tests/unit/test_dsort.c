@@ -137,6 +137,9 @@ static void s07_bucket_counts(void)
 // Deliberately NOT asserted here: which specific buckets land on which rank.
 // That is a balancing policy and O2c is expected to change it.  What must
 // survive any policy change are the structural properties below.
+typedef void (*MapFn)(const int64_t *, int, int *, int *);
+static MapFn MAP = compute_destination_map;
+
 static void check_map(const int64_t *hist, int ws, const char *what)
 {
     int *ksplit = malloc((size_t) (ws + 1) * sizeof(int));
@@ -145,8 +148,8 @@ static void check_map(const int64_t *hist, int ws, const char *what)
     int *s2     = malloc(NUM_BUCK * sizeof(int));
     int  b, r;
 
-    compute_destination_map(hist, ws, ksplit, select);
-    compute_destination_map(hist, ws, k2, s2);
+    MAP(hist, ws, ksplit, select);
+    MAP(hist, ws, k2, s2);
 
     // determinism: this is what licenses every rank computing it redundantly
     CHECK_MSG(memcmp(select, s2, NUM_BUCK * sizeof(int)) == 0,
@@ -170,6 +173,11 @@ static void check_map(const int64_t *hist, int ws, const char *what)
         CHECK_MSG(ksplit[r - 1] <= ksplit[r],
                   "%s: ksplit not non-decreasing at %d (%d > %d)",
                   what, r, ksplit[r - 1], ksplit[r]);
+
+    for (r = 0; r < ws; r++)
+        for (b = ksplit[r]; b < ksplit[r + 1]; b++)
+            CHECK_MSG(select[b] == r, "%s: bucket %d in ksplit range of %d but select=%d",
+                      what, b, r, select[b]);
 
     free(ksplit); free(select); free(k2); free(s2);
 }
@@ -247,6 +255,74 @@ static void s08_destination_map(void)
         free(ks); free(sel);
     }
     free(hist);
+}
+
+// S-10 (R3) -- compute_destination_map_optimal: the S-08 invariants, plus
+// optimality. Its largest rank load is never above the FastGA-style map's,
+// and it is minimal: no contiguous split into world_size ranges has a
+// smaller maximum: max-1 must be infeasible under a separately written
+// greedy feasibility test (greedy is exact for contiguous splits).
+static int64_t max_load(const int64_t *hist, const int *sel, int ws)
+{
+    int64_t *L = calloc((size_t) ws, sizeof(int64_t)), m = 0;
+    for (int b = 0; b < NUM_BUCK; b++) L[sel[b]] += hist[b];
+    for (int r = 0; r < ws; r++) if (L[r] > m) m = L[r];
+    free(L);
+    return m;
+}
+
+// Independent oracle: is there a contiguous split into <= ws parts with max <= cap?
+static int oracle_fits(const int64_t *h, int ws, int64_t cap)
+{
+    int parts = 1; int64_t s = 0;
+    for (int b = 0; b < NUM_BUCK; b++) {
+        if (h[b] > cap) return 0;
+        if (s + h[b] > cap) { if (++parts > ws) return 0; s = h[b]; } else s += h[b];
+    }
+    return 1;
+}
+
+static void s10_optimal_map(void)
+{
+    int64_t *hist = calloc(NUM_BUCK, sizeof(int64_t));
+    int *ks = malloc((NUM_BUCK + 1) * sizeof(int)), *sel = malloc(NUM_BUCK * sizeof(int));
+    int *ks2 = malloc((NUM_BUCK + 1) * sizeof(int)), *sel2 = malloc(NUM_BUCK * sizeof(int));
+    const int WS[] = { 1, 2, 3, 4, 7, 32, 64, 127, 128, 256, 1024 };
+    uint64_t x = 12345;
+    int b;
+
+    MAP = compute_destination_map_optimal;
+    for (b = 0; b < NUM_BUCK; b++) hist[b] = 1;
+    check_map(hist, 1, "opt uniform/1"); check_map(hist, 3, "opt uniform/3");
+    check_map(hist, 4, "opt uniform/4"); check_map(hist, 1024, "opt uniform/1024");
+    memset(hist, 0, NUM_BUCK * sizeof(int64_t)); hist[500] = 1000;
+    check_map(hist, 4, "opt single bucket/4"); check_map(hist, 3, "opt single bucket/3");
+    memset(hist, 0, NUM_BUCK * sizeof(int64_t));
+    check_map(hist, 4, "opt empty/4"); check_map(hist, 1, "opt empty/1");
+
+    for (int trial = 0; trial < 40; trial++) {
+        // skewed: a few heavy buckets (poly-A/T-like), many light, some empty
+        for (b = 0; b < NUM_BUCK; b++) {
+            x ^= x << 13; x ^= x >> 7; x ^= x << 17;
+            hist[b] = (x % 7 == 0) ? 0 : (int64_t) (x % 1000);
+        }
+        hist[0] += 50000 * (trial % 3); hist[NUM_BUCK - 1] += 40000 * (trial % 2);
+        for (int w = 0; w < (int) (sizeof(WS) / sizeof(WS[0])); w++) {
+            int ws = WS[w];
+            char what[64];
+            snprintf(what, sizeof(what), "opt random %d/%d", trial, ws);
+            MAP = compute_destination_map_optimal;
+            check_map(hist, ws, what);
+            compute_destination_map_optimal(hist, ws, ks, sel);
+            compute_destination_map(hist, ws, ks2, sel2);
+            int64_t mo = max_load(hist, sel, ws), mg = max_load(hist, sel2, ws);
+            CHECK_MSG(mo <= mg, "%s: optimal max %lld > greedy max %lld", what, (long long) mo, (long long) mg);
+            CHECK_MSG(oracle_fits(hist, ws, mo), "%s: own split not feasible?", what);
+            CHECK_MSG(mo == 0 || !oracle_fits(hist, ws, mo - 1), "%s: max %lld not minimal", what, (long long) mo);
+        }
+    }
+    MAP = compute_destination_map;
+    free(hist); free(ks); free(sel); free(ks2); free(sel2);
 }
 
 // S-09 -- organize_send_buffer regroups records by destination losslessly.
@@ -348,5 +424,6 @@ int main(void)
     RUN(s07_bucket_counts);
     RUN(s08_destination_map);
     RUN(s09_organize_send);
+    RUN(s10_optimal_map);
     return t_report("test_dsort");
 }

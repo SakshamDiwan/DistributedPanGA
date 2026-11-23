@@ -32,6 +32,7 @@ for N in $RANK_COUNTS; do
     srun -n "$N" "$BIN" uniform "$WORK/digest.$N" || status=1
     srun -n "$N" "$BIN" skew                      || status=1
     srun -n "$N" "$BIN" allempty                  || status=1
+    srun -n "$N" "$BIN" take                      || status=1   # M-07 (R3)
     srun -n "$N" "$ROOT/tests/bin/test_chunked_mpi" || status=1   # R-06, real exchange
 done
 

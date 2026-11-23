@@ -167,6 +167,64 @@ void compute_destination_map(const int64_t *global_counts, int world_size,
 }
 
 
+// Min-max contiguous split (R3, opt-in via PGA_SPLITTER=optimal): the
+// smallest cap such that the buckets, taken in order, fit into world_size
+// contiguous ranges each holding <= cap records; then fill ranks greedily up
+// to that cap. Same invariants as compute_destination_map (monotone, in range,
+// deterministic, whole buckets), so ownership stays a contiguous, ordered
+// prefix range per rank; only the boundaries move. Trailing ranks may be empty.
+static int split_fits(const int64_t *c, int world_size, int64_t cap)
+{
+    int parts = 1;
+    int64_t sum = 0;
+    for (int i = 0; i < NUM_BUCK; i++)
+    {
+        if (c[i] > cap) return 0;
+        if (sum + c[i] > cap) { parts++; sum = c[i]; if (parts > world_size) return 0; }
+        else sum += c[i];
+    }
+    return 1;
+}
+
+void compute_destination_map_optimal(const int64_t *global_counts, int world_size,
+                                     int *ksplit, int *select)
+{
+    int64_t lo = 0, hi = 0;
+    for (int i = 0; i < NUM_BUCK; i++)
+    {
+        hi += global_counts[i];
+        if (global_counts[i] > lo) lo = global_counts[i];
+    }
+    while (lo < hi)
+    {
+        int64_t mid = lo + (hi - lo) / 2;
+        if (split_fits(global_counts, world_size, mid)) hi = mid;
+        else lo = mid + 1;
+    }
+    int r = 0;
+    int64_t sum = 0;
+    ksplit[0] = 0;
+    for (int i = 0; i < NUM_BUCK; i++)
+    {
+        if (sum + global_counts[i] > lo && r + 1 < world_size)
+        {
+            r++;
+            ksplit[r] = i;
+            sum = 0;
+        }
+        sum += global_counts[i];
+        select[i] = r;
+    }
+    for (int q = r + 1; q <= world_size; q++)
+        ksplit[q] = NUM_BUCK;
+}
+
+int splitter_from_env(void)
+{
+    const char *e = getenv("PGA_SPLITTER");
+    return (e != NULL && strcmp(e, "optimal") == 0) ? 1 : 0;
+}
+
 // Stage 2 — send-side organization (per-rank lists, then concat).
 
 void organize_send_buffer(const RecordBuffer *local, const int *select,
@@ -366,23 +424,59 @@ static void shuffle_records(RecordBuffer *b, uint64_t seed, int rank)
     }
 }
 
-void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
+static void stage2_mem(int i)
+{
+    char line[256];
+    Stage2Timing *tm = &g_stage2_timing;
+    FILE *f = fopen("/proc/self/status", "r");
+    tm->rss_kb[i] = tm->hwm_kb[i] = -1;
+    if (f == NULL) return;
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "VmRSS:", 6) == 0) tm->rss_kb[i] = atol(line + 6);
+        else if (strncmp(line, "VmHWM:", 6) == 0) tm->hwm_kb[i] = atol(line + 6);
+    }
+    fclose(f);
+}
+
+static void dump_bucket_hist(const int64_t *global_counts, const int *select, int my_rank)
+{
+    const char *path = getenv("PGA_BUCKET_HIST");
+    if (path == NULL || path[0] == '\0' || my_rank != 0) return;
+    FILE *f = fopen(path, "w");
+    if (f == NULL) {
+        fprintf(stderr, "run_stage2: cannot write PGA_BUCKET_HIST=%s\n", path);
+        return;
+    }
+    fprintf(f, "bucket\tcount\trank\n");
+    for (int b = 0; b < NUM_BUCK; b++)
+        fprintf(f, "%d\t%lld\t%d\n", b, (long long) global_counts[b], select[b]);
+    fclose(f);
+}
+
+// `own` is non-NULL only for run_stage2_take: then `local` == `own` and its
+// records are freed right after packing.
+static void stage2_impl(const RecordBuffer *local, RecordBuffer *own,
+                        RecordBuffer *recv, MPI_Comm comm)
 {
     int my_rank, world_size;
     MPI_Comm_rank(comm, &my_rank);
     MPI_Comm_size(comm, &world_size);
 
     int rsize = local->sizing.record_size;
+    RecordSizing sizing = local->sizing;
     Stage2Timing *tm = &g_stage2_timing;
     memset(tm, 0, sizeof(*tm));
-    double t0 = MPI_Wtime(), t1;
+    stage2_mem(0);
+    double t0 = MPI_Wtime(), t1, ta;
 
     int64_t local_counts[NUM_BUCK];
     bucket_local_counts(local, local_counts);
+    ta = MPI_Wtime(); tm->count_s = ta - t0;
 
     int64_t global_counts[NUM_BUCK];
     MPI_Allreduce(local_counts, global_counts, NUM_BUCK,
                   MPI_LONG_LONG, MPI_SUM, comm);
+    tm->allreduce_s = MPI_Wtime() - ta; ta = MPI_Wtime();
 
     // Splitter computed identically on every rank (deterministic given identical input).
     int *ksplit = (int *) malloc((world_size + 1) * sizeof(int));
@@ -392,8 +486,13 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
         fprintf(stderr, "run_stage2: out of memory for splitter arrays\n");
         MPI_Abort(comm, 1);
     }
-    compute_destination_map(global_counts, world_size, ksplit, select);
-    t1 = MPI_Wtime(); tm->hist_s = t1 - t0; t0 = t1;
+    tm->splitter = splitter_from_env();
+    if (tm->splitter)
+        compute_destination_map_optimal(global_counts, world_size, ksplit, select);
+    else
+        compute_destination_map(global_counts, world_size, ksplit, select);
+    t1 = MPI_Wtime(); tm->map_s = t1 - ta; tm->hist_s = t1 - t0; t0 = t1;
+    dump_bucket_hist(global_counts, select, my_rank);
 
     int64_t *send_counts = (int64_t *) malloc(world_size * sizeof(int64_t));
     int64_t *send_displs = (int64_t *) malloc(world_size * sizeof(int64_t));
@@ -407,17 +506,31 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
     uint8_t *send_buf = NULL;
     organize_send_buffer(local, select, world_size,
                          &send_buf, send_counts, send_displs);
+    if (own != NULL)
+    {
+        // Every record now lives in send_buf; the extraction buffer is dead.
+        record_buffer_free(own);
+        local = NULL;
+        tm->took_local = 1;
+    }
     t1 = MPI_Wtime(); tm->pack_s = t1 - t0; t0 = t1;
+    stage2_mem(1);
 
     // int64 sizes: per-rank totals may exceed INT_MAX (large datasets).
     xchg_exchange_sizes(send_counts, recv_counts, comm);
+    ta = MPI_Wtime(); tm->sizes_s = ta - t0;
 
     int64_t recv_total_bytes = 0;
     for (int r = 0; r < world_size; r++)
+    {
         recv_total_bytes += recv_counts[r];
+        tm->sent_bytes   += send_counts[r];
+    }
+    tm->self_bytes = send_counts[my_rank];
+    tm->recv_bytes = recv_total_bytes;
     int64_t recv_record_count = recv_total_bytes / rsize;
 
-    recv->sizing   = local->sizing;
+    recv->sizing   = sizing;
     recv->count    = recv_record_count;
     recv->capacity = recv_record_count;
     recv->data     = (uint8_t *) malloc(recv_total_bytes + 1);
@@ -437,6 +550,8 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
                       &xsrc, &xdst, comm, &xst);
     tm->exchange_rounds  = xst.rounds;
     tm->exchange_staging = xst.staging_bytes;
+    tm->xfer_s = MPI_Wtime() - ta; ta = MPI_Wtime();
+    stage2_mem(2);
 
     free(send_buf);
     free(send_counts);
@@ -444,7 +559,8 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
     free(recv_counts);
     free(ksplit);
     free(select);
-    t1 = MPI_Wtime(); tm->exchange_s = t1 - t0; t0 = t1;
+    t1 = MPI_Wtime(); tm->free_s = t1 - ta; tm->exchange_s = t1 - t0; t0 = t1;
+    stage2_mem(3);
 
     const char *shuffle_env = getenv("PGA_PRESORT_SHUFFLE");
     if (shuffle_env != NULL && shuffle_env[0] != '\0')
@@ -459,12 +575,22 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
     }
 
     sort_records(recv);
+    tm->rebucket_s = g_sort_timing.rebucket_s;
+    tm->msd_s      = g_sort_timing.msd_s;
+    tm->sort_threads = g_sort_timing.threads;
+    tm->sort_parts   = g_sort_timing.parts;
+    tm->sort_nonempty_parts = g_sort_timing.nonempty_parts;
+    tm->sort_largest_part   = g_sort_timing.largest_part;
+    tm->sort_heavy_parts    = g_sort_timing.heavy_parts;
+    tm->heavy_s             = g_sort_timing.heavy_s;
+    ta = MPI_Wtime();
 
 #ifdef LCPs
     // Overwrite msd_sort's mixed-formula byte 0 with our base-level LCP.
     recalc_all_lcps(recv);
 #endif
-    t1 = MPI_Wtime(); tm->local_sort_s = t1 - t0; t0 = t1;
+    t1 = MPI_Wtime(); tm->lcp_s = t1 - ta; tm->local_sort_s = t1 - t0; t0 = t1;
+    stage2_mem(4);
     int64_t first_bad = -1;
     int64_t bad = verify_per_rank_sorted(recv, &first_bad);
     if (bad != 0)
@@ -474,6 +600,7 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
                 my_rank, (long long) bad, (long long) first_bad);
         MPI_Abort(comm, 2);
     }
+    ta = MPI_Wtime(); tm->check_s = ta - t0;
 
     // Cross-rank boundary check; also collects prev_last for the LCP fixup below.
     uint8_t prev_last_kmer[KBYTES];
@@ -488,6 +615,7 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
                     boundary_bad);
         MPI_Abort(comm, 3);
     }
+    tm->boundary_s = MPI_Wtime() - ta;
 
     // LCP boundary fixup. For ranks ≥ 1, recalc_all_lcps wrote 0 into
     // recv->data[0] because it treats the rank-local first record as having no
@@ -515,4 +643,35 @@ void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
 #endif
     }
     tm->verify_s = MPI_Wtime() - t0;
+    stage2_mem(5);
+}
+
+void stage2_report(FILE *f, int rank)
+{
+    const Stage2Timing *t = &g_stage2_timing;
+    fprintf(f, "[r3-s2] rank %d: count_s=%.6f allreduce_s=%.6f map_s=%.6f pack_s=%.6f "
+               "sizes_s=%.6f xfer_s=%.6f free_s=%.6f rebucket_s=%.6f msd_s=%.6f lcp_s=%.6f "
+               "check_s=%.6f boundary_s=%.6f sent_bytes=%lld self_bytes=%lld recv_bytes=%lld "
+               "rounds=%lld staging=%lld sort_threads=%d sort_parts=%d nonempty_parts=%d "
+               "largest_part=%lld heavy_parts=%d heavy_s=%.6f took_local=%d splitter=%s",
+            rank, t->count_s, t->allreduce_s, t->map_s, t->pack_s, t->sizes_s, t->xfer_s,
+            t->free_s, t->rebucket_s, t->msd_s, t->lcp_s, t->check_s, t->boundary_s,
+            (long long) t->sent_bytes, (long long) t->self_bytes, (long long) t->recv_bytes,
+            (long long) t->exchange_rounds, (long long) t->exchange_staging,
+            t->sort_threads, t->sort_parts, t->sort_nonempty_parts,
+            (long long) t->sort_largest_part, t->sort_heavy_parts, t->heavy_s, t->took_local,
+            t->splitter ? "optimal" : "fastga");
+    for (int i = 0; i < 6; i++)
+        fprintf(f, " rss%d_kb=%ld hwm%d_kb=%ld", i, t->rss_kb[i], i, t->hwm_kb[i]);
+    fprintf(f, "\n");
+}
+
+void run_stage2(const RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
+{
+    stage2_impl(local, NULL, recv, comm);
+}
+
+void run_stage2_take(RecordBuffer *local, RecordBuffer *recv, MPI_Comm comm)
+{
+    stage2_impl(local, local, recv, comm);
 }

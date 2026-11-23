@@ -43,6 +43,15 @@ pga-mpi-stage1: $(PHASE3_STAGE1_SRCS) $(LIB_SRCS)
 pga-mpi: $(PHASE3_SRCS) $(LIB_SRCS)
 	$(CC) $(CFLAGS) -o pga-mpi $(PHASE3_SRCS) $(LIB_SRCS) $(LIBS)
 
+# R3 analysis tool: k-mer prefix histogram via the production extraction scan.
+# No MPI; not part of `all`.
+pga-prefix-hist: src/pga-prefix-hist.c $(CORE_SRCS) $(LIB_SRCS)
+	gcc $(CFLAGS) -o pga-prefix-hist src/pga-prefix-hist.c $(CORE_SRCS) $(LIB_SRCS) $(LIBS)
+
+# R3 benchmark: extraction + distributed sort only, with digests. Not in `all`.
+pga-dsort-bench: src/pga-dsort-bench.c $(CORE_SRCS) src/sort.c src/dsort.c src/chunked_exchange.c $(LIB_SRCS)
+	$(CC) $(CFLAGS) -o pga-dsort-bench src/pga-dsort-bench.c $(CORE_SRCS) src/sort.c src/dsort.c src/chunked_exchange.c $(LIB_SRCS) $(LIBS)
+
 # Phase 4b — distributed merge + alignment. mpicc, links pga-mpi's stage 2
 # (dsort.c), the k-mer adapter and the lifted FastGA pipeline.
 PHASE4B_SRCS = src/pga-mpi-merge.c $(CORE_SRCS) src/sort.c src/dsort.c src/chunked_exchange.c \
@@ -115,13 +124,20 @@ test-lcp-sort:
 	    $(TEST_SUPPORT) src/sort.c $(TEST_EXSRCS) $(TEST_GDBLIB) lib/MSDsort.c $(LIBS)
 	tests/bin/test_lcp_sort
 
+# R3: sort_records thread count / part granularity (no GDB, no MPI).
+test-sort-opts:
+	@mkdir -p tests/bin
+	gcc $(TEST_CFLAGS) -o tests/bin/test_sort_opts tests/unit/test_sort_opts.c \
+	    tests/support/check.c src/sort.c $(TEST_EXSRCS) $(TEST_GDBLIB) lib/MSDsort.c $(LIBS)
+	tests/bin/test_sort_opts
+
 test-record-split:
 	@mkdir -p tests/bin
 	gcc $(TEST_CFLAGS) -o tests/bin/test_record_split tests/unit/test_record_split.c \
 	    tests/support/check.c src/record.c src/work_split.c $(LIBS)
 	tests/bin/test_record_split
 
-test: test-record-split test-extract test-extract-window test-lcp-sort \
+test: test-record-split test-extract test-extract-window test-lcp-sort test-sort-opts \
       test-dsort test-assign test-adapter test-exchange-plan test-run-cmd \
       test-chunked-exchange test-fastga-order
 
@@ -132,6 +148,10 @@ test-asan:
 	    -o tests/bin/test_lcp_sort_asan tests/unit/test_lcp_sort.c \
 	    $(TEST_SUPPORT) src/sort.c $(TEST_EXSRCS) $(TEST_GDBLIB) lib/MSDsort.c $(LIBS)
 	tests/bin/test_lcp_sort_asan --slow
+	gcc $(TEST_CFLAGS) -fsanitize=address,undefined -O1 -g \
+	    -o tests/bin/test_sort_opts_asan tests/unit/test_sort_opts.c \
+	    tests/support/check.c src/sort.c $(TEST_EXSRCS) $(TEST_GDBLIB) lib/MSDsort.c $(LIBS)
+	tests/bin/test_sort_opts_asan
 	gcc $(TEST_CFLAGS) -fsanitize=address,undefined -O1 -g \
 	    -o tests/bin/test_extract_asan tests/unit/test_extract.c \
 	    $(TEST_SUPPORT) $(TEST_EXSRCS) $(TEST_GDBLIB) $(LIBS)

@@ -334,6 +334,13 @@ int main(int argc, char *argv[])
     record_buffer_init(&local, sizing);
     extract_stats_reset();
     extract_to_records(gdb, world_size, my_rank, &local);
+    // This rank's own extraction time (reported per rank in [o1-0]).
+    double t_extract_own = MPI_Wtime() - t_stage_start;
+    // Wait for every rank before the sort starts. Without this, early ranks
+    // wait inside the sort's first Allreduce, so the stage table counts that
+    // wait in both extract (slowest rank) and sort (early ranks) and the
+    // summed TOTAL exceeds the wall time.
+    MPI_Barrier(MPI_COMM_WORLD);
     t_extract = MPI_Wtime() - t_stage_start;
     int64_t extracted_records = local.count;
 
@@ -342,10 +349,20 @@ int main(int argc, char *argv[])
     RecordBuffer recv;
     memset(&recv, 0, sizeof(recv));
     mem_stage_end(MEM_EXTRACT);
-    run_stage2(&local, &recv, MPI_COMM_WORLD);
+    // run_stage2_take frees the extraction buffer as soon as it is packed
+    // (lower peak memory, same output). PGA_STAGE2_KEEP_LOCAL=1 keeps it to
+    // the end of the stage, as before, for A/B memory comparisons.
+    {
+        const char *keep = getenv("PGA_STAGE2_KEEP_LOCAL");
+        if (keep != NULL && strcmp(keep, "1") == 0)
+            run_stage2(&local, &recv, MPI_COMM_WORLD);
+        else
+            run_stage2_take(&local, &recv, MPI_COMM_WORLD);
+    }
     record_buffer_free(&local);
     t_sort = MPI_Wtime() - t_stage_start;
     mem_stage_end(MEM_STAGE2);
+    stage2_report(stderr, my_rank);
 
     fprintf(stderr, "[merge] rank %d: own slice has %lld records (sorted)\n",
             my_rank, (long long) recv.count);
@@ -356,13 +373,14 @@ int main(int argc, char *argv[])
         const ExtractStats *es = &g_extract_stats;
         const Stage2Timing *st = &g_stage2_timing;
         fprintf(stderr,
-                "[o1-0] rank %d: extract_s=%.6f contigs=%lld bases=%lld "
+                "[o1-0] rank %d: extract_s=%.6f extract_wait_s=%.6f contigs=%lld bases=%lld "
                 "records=%lld window_reads=%lld window_bases=%lld "
                 "pack_reads=%lld pack_bases=%lld window_packs=%lld "
                 "hist_s=%.6f pack_s=%.6f exchange_s=%.6f shuffle_s=%.6f "
                 "local_sort_s=%.6f verify_s=%.6f sort_stage_s=%.6f "
                 "slice_records=%lld\n",
-                my_rank, t_extract, (long long) es->contigs,
+                my_rank, t_extract_own, t_extract - t_extract_own,
+                (long long) es->contigs,
                 (long long) es->bases, (long long) extracted_records,
                 (long long) es->window_reads, (long long) es->window_bases,
                 (long long) es->pack_reads, (long long) es->pack_bases,

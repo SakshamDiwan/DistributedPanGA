@@ -27,6 +27,7 @@
 #include "chunked_exchange.h"
 
 static int rank, nranks, failures = 0, checks = 0;
+static int expect_large = 0;   // PGA_EXCHANGE_LARGE_COUNT=1 set for this case
 
 static uint8_t byte_at(int src, int dst, int64_t off)
 {
@@ -164,6 +165,8 @@ static void run_case(int unit, int64_t budget_mine, int mode, int want_multi,
     int64_t want_cap = xchg_chunk_cap(nranks, unit, min_budget);
     if (!st.direct && st.cap != want_cap) ok = 0;    // all ranks used the minimum budget
     if (want_multi && (st.direct || st.rounds < 2)) ok = 0;   // must really chunk
+    if (expect_large && mode == MODE_BUF && st.direct != 2) ok = 0;   // large-count path taken
+    if (st.direct == 2 && (mode != MODE_BUF || st.staging_bytes != 0)) ok = 0;
 
     int all_ok;
     MPI_Allreduce(&ok, &all_ok, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
@@ -171,7 +174,7 @@ static void run_case(int unit, int64_t budget_mine, int mode, int want_multi,
     if (!all_ok) failures++;
     if (rank == 0)
         printf("  %-44s rounds=%-5lld %-7s %s\n", label, (long long) st.rounds,
-               st.direct ? "direct" : "chunked", all_ok ? "ok" : "FAIL");
+               st.direct == 2 ? "large" : st.direct ? "direct" : "chunked", all_ok ? "ok" : "FAIL");
 
     if (in_fd) { for (int p = 0; p < nranks; p++) close(in_fd[p]); free(in_fd); }
     if (out_fd >= 0) close(out_fd);
@@ -188,6 +191,8 @@ int main(int argc, char **argv)
     if (rank == 0) printf("test_chunked_mpi (world size %d)\n", nranks);
 
     const char *mode_name[] = { "buffers", "memory callbacks", "file pread/pwrite" };
+    // The large-count path is the default; the chunked cases below need it off.
+    setenv("PGA_EXCHANGE_LARGE_COUNT", "0", 1);
     for (int mode = 0; mode < 3; mode++) {
         for (int u = 0; u < 2; u++) {
             int unit = u ? 9 : 16;
@@ -203,6 +208,22 @@ int main(int argc, char **argv)
             run_case(unit, XCHG_DEFAULT_ROUND_BYTES, mode, 0, label);
         }
     }
+    // R3: MPI-4 large-count path (the default when the variable is unset).
+    // Buffers take one MPI_Alltoallv_c whatever the budget; callbacks are
+    // unaffected and still chunk.
+    unsetenv("PGA_EXCHANGE_LARGE_COUNT");
+    expect_large = 1;
+    for (int mode = 0; mode < 3; mode++) {
+        for (int u = 0; u < 2; u++) {
+            int unit = u ? 9 : 16;
+            char label[96];
+            snprintf(label, sizeof(label), "%s, unit %d, 4 KiB budget, large-count",
+                     mode_name[mode], unit);
+            run_case(unit, 4096, mode, mode != MODE_BUF, label);
+        }
+    }
+    unsetenv("PGA_EXCHANGE_LARGE_COUNT");
+    expect_large = 0;
     if (rank == 0)
         printf("test_chunked_mpi: %d checks, %d failures\n", checks, failures);
     MPI_Finalize();

@@ -39,6 +39,13 @@ void record_buffer_free(RecordBuffer *b);
 
 void extract_to_records(GDB *gdb, int num_workers, int worker_id, RecordBuffer *buf);
 
+// --- Generic scan (analysis tools) ------------------------------------------
+// The exact scan behind extract_to_records, with a caller-supplied callback per
+// emitted k-mer (same k-mers, same order). Used by pga-prefix-hist.
+typedef void (*EmitFn)(void *user, int contig, int64_t position, int strand,
+                       const uint8_t *kmer);
+void extract_scan(GDB *gdb, int num_workers, int worker_id, EmitFn emit, void *user);
+
 // --- Instrumentation (O1-0) --------------------------------------------------
 // Cumulative counters for this process; extraction is single-threaded, so a
 // plain global is safe. Reset with extract_stats_reset().

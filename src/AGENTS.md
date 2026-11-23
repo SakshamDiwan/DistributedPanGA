@@ -33,8 +33,12 @@ Layering, innermost first: `constants.h` → `record`/`tables`/`pack`/`work_spli
 - Buffers get `+1` byte for `msd_sort`'s sentinel; `Get_Contig_Piece` callers
   pass `buf+1` for its `buffer[-1]` sentinel. Both are easy to lose in a
   refactor and fail silently.
-- `sort_records` hardcodes 4 threads; the merge drivers hardcode `NTHREADS=1`
-  and `FREQ=10`. No env var overrides these.
+- `sort_records` defaults to 4 threads and 1,024 parts (FastGA's GIXmake
+  layout); `PGA_SORT_THREADS` / `PGA_SORT_PARTS=256` override. More than 1,024
+  parts would index past `msd_sort`'s `LCP_Table`. Stage 2 frees the extraction
+  buffer after packing and exchanges with one `MPI_Alltoallv_c`
+  (`PGA_STAGE2_KEEP_LOCAL=1`, `PGA_EXCHANGE_LARGE_COUNT=0` restore the old
+  paths). The merge drivers hardcode `NTHREADS=1` and `FREQ=10`.
 - Errors in MPI code paths call `MPI_Abort` with a distinct code
   (2 = local sort check, 3 = boundary check). Keep codes distinct.
 
