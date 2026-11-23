@@ -581,6 +581,8 @@ static void stage2_impl(const RecordBuffer *local, RecordBuffer *own,
     tm->sort_parts   = g_sort_timing.parts;
     tm->sort_nonempty_parts = g_sort_timing.nonempty_parts;
     tm->sort_largest_part   = g_sort_timing.largest_part;
+    tm->sort_heavy_parts    = g_sort_timing.heavy_parts;
+    tm->heavy_s             = g_sort_timing.heavy_s;
     ta = MPI_Wtime();
 
 #ifdef LCPs
@@ -651,13 +653,13 @@ void stage2_report(FILE *f, int rank)
                "sizes_s=%.6f xfer_s=%.6f free_s=%.6f rebucket_s=%.6f msd_s=%.6f lcp_s=%.6f "
                "check_s=%.6f boundary_s=%.6f sent_bytes=%lld self_bytes=%lld recv_bytes=%lld "
                "rounds=%lld staging=%lld sort_threads=%d sort_parts=%d nonempty_parts=%d "
-               "largest_part=%lld took_local=%d splitter=%s",
+               "largest_part=%lld heavy_parts=%d heavy_s=%.6f took_local=%d splitter=%s",
             rank, t->count_s, t->allreduce_s, t->map_s, t->pack_s, t->sizes_s, t->xfer_s,
             t->free_s, t->rebucket_s, t->msd_s, t->lcp_s, t->check_s, t->boundary_s,
             (long long) t->sent_bytes, (long long) t->self_bytes, (long long) t->recv_bytes,
             (long long) t->exchange_rounds, (long long) t->exchange_staging,
             t->sort_threads, t->sort_parts, t->sort_nonempty_parts,
-            (long long) t->sort_largest_part, t->took_local,
+            (long long) t->sort_largest_part, t->sort_heavy_parts, t->heavy_s, t->took_local,
             t->splitter ? "optimal" : "fastga");
     for (int i = 0; i < 6; i++)
         fprintf(f, " rss%d_kb=%ld hwm%d_kb=%ld", i, t->rss_kb[i], i, t->hwm_kb[i]);

@@ -16,6 +16,7 @@ void sort_records(RecordBuffer *buf);
 void sort_records_opts(RecordBuffer *buf, int nthreads, int nparts);
 int  sort_threads_from_env(void);
 int  sort_parts_from_env(void);
+int  sort_heavy_from_env(void);   // 0 if PGA_SORT_HEAVY=0, else 1
 
 // Phase times of the most recent sort_records call (seconds, this process).
 typedef struct {
@@ -24,6 +25,8 @@ typedef struct {
     int     threads, parts;  // settings used
     int     nonempty_parts;  // parts holding records (= available parallel tasks)
     int64_t largest_part;    // records in the largest part
+    int     heavy_parts;     // parts sorted separately, split on the next 8 key bits
+    double  heavy_s;         // heavy path: sub-regroup + the msd_sort call (0 if none)
 } SortTiming;
 extern SortTiming g_sort_timing;
 

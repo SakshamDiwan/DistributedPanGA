@@ -130,6 +130,8 @@ typedef struct {
     int64_t recv_bytes;   // record bytes received
     int     sort_threads, sort_parts, sort_nonempty_parts;
     int64_t sort_largest_part;
+    int     sort_heavy_parts; // parts sorted split on the next 8 key bits
+    double  heavy_s;          // local sort: heavy path (sub-regroup + msd_sort), part of msd_s
     int     took_local;   // 1 if the extraction buffer was freed after packing
     int     splitter;     // 0 = compute_destination_map, 1 = ..._optimal
     // VmRSS / VmHWM (kB) sampled at substage ends: 0 start, 1 after pack,

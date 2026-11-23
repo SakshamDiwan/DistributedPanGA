@@ -20,6 +20,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 #include "check.h"
 #include "sort.h"
@@ -219,12 +221,105 @@ static void so05_sort_records_uses_env(void)
     free(a.data); free(b.data); record_buffer_free(&in);
 }
 
+// SO-06 -- heavy parts. A part holding more than 1/threads of the records is
+// sorted on its own, split on the next 8 key bits, and the other parts in runs
+// around it. The result must equal the unsplit sort (PGA_SORT_HEAVY=0):
+// same (k-mer, LCP) sequence, same multiset. Heavy part first, last, in the
+// middle, three at once, and in both part modes; the sub-split itself is
+// skewed (most records share the next bytes too) and has equal k-mers.
+static void make_heavy(RecordBuffer *b, int64_t n, const int *hot, int nhot, int pct)
+{
+    fill(b, n, 0);
+    for (int64_t i = 0; i < n; i++) {
+        uint8_t *r = b->data + i * SZ.record_size;
+        uint64_t v = xr();
+        if ((int) (v % 100) < pct) {
+            int bucket = hot[(v >> 8) % (uint64_t) nhot];     // 10-bit bucket
+            r[1] = (uint8_t) (bucket >> 2);
+            r[2] = (uint8_t) (((bucket & 3) << 6) | (r[2] & 0x3f));
+            if ((v >> 16) % 3 == 0) { r[2] &= 0xc0; r[3] = 0; }    // poly-A-like run in the sub-split
+            if ((v >> 20) % 4 == 0 && i > 0)                       // equal k-mers
+                memcpy(r + 1, b->data + (i - 1) * SZ.record_size + 1, KBYTES);
+        }
+    }
+}
+
+static void so06_heavy_parts(void)
+{
+    static const int first[] = { 0 }, last[] = { 1023 }, mid[] = { 500 }, many[] = { 0, 511, 1023 };   // 95% over 3 buckets: 31.7% each > 1/4
+    struct { const int *hot; int n; int pct; const char *what; } C[] = {
+        { first, 1, 80, "first" }, { last, 1, 80, "last" }, { mid, 1, 60, "middle" },
+        { many, 3, 95, "three heavy" }, { mid, 1, 10, "none heavy" } };
+    for (unsigned c = 0; c < sizeof(C) / sizeof(C[0]); c++)
+        for (int p = 256; p <= 1024; p += 768) {
+            RecordBuffer in;
+            make_heavy(&in, 300000, C[c].hot, C[c].n, C[c].pct);
+            RecordBuffer ref = clone(&in), got = clone(&in);
+            setenv("PGA_SORT_HEAVY", "0", 1);
+            sort_records_opts(&ref, 4, p);
+            CHECK_EQ_I(g_sort_timing.heavy_parts, 0);
+            unsetenv("PGA_SORT_HEAVY");
+            sort_records_opts(&got, 4, p);
+            if (C[c].pct >= 60)
+                CHECK_MSG(g_sort_timing.heavy_parts >= 1, "%s/%d: no heavy part detected", C[c].what, p);
+            else
+                CHECK_EQ_I(g_sort_timing.heavy_parts, 0);
+            recalc_all_lcps(&ref); recalc_all_lcps(&got);
+            CHECK_MSG(is_sorted(&got), "%s/%d: not sorted", C[c].what, p);
+            CHECK_MSG(same_multiset(&in, &got), "%s/%d: multiset changed", C[c].what, p);
+            CHECK_MSG(same_kmer_lcp_sequence(&ref, &got), "%s/%d: (k-mer, LCP) differs from unsplit sort", C[c].what, p);
+            // one thread: never split
+            RecordBuffer one = clone(&in);
+            sort_records_opts(&one, 1, p);
+            CHECK_EQ_I(g_sort_timing.heavy_parts, 0);
+            free(one.data); free(ref.data); free(got.data); record_buffer_free(&in);
+        }
+}
+
+// Each test runs in a forked child. lib/MSDsort.c (FastGA, read-only here)
+// starts one thread per part and never joins them, and ignores pthread_create
+// failures: every exited thread keeps its stack mapping, so after a few tens of
+// thousands of threads in one process (vm.max_map_count = 65530 mappings)
+// pthread_create fails and msd_sort waits forever. Production sorts once per
+// process (<= 1024 threads); a test process sorts dozens of times.
+static void run_forked(const char *name, void (*fn)(void))
+{
+    int fd[2];
+    int counts[2] = { 0, 0 };
+    fflush(stdout);
+    if (pipe(fd) != 0) { perror("pipe"); exit(1); }
+    pid_t pid = fork();
+    if (pid == 0) {
+        close(fd[0]);
+        t_begin(name);
+        fn();
+        t_end();
+        fflush(stdout);
+        counts[0] = t_checks; counts[1] = t_fails;
+        if (write(fd[1], counts, sizeof(counts)) != sizeof(counts)) _exit(2);
+        _exit(0);
+    }
+    close(fd[1]);
+    ssize_t got = read(fd[0], counts, sizeof(counts));
+    close(fd[0]);
+    int status = 0;
+    waitpid(pid, &status, 0);
+    if (got != sizeof(counts) || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        printf("  %-52s CRASHED\n", name);
+        t_checks++; t_fails++;
+        return;
+    }
+    t_checks += counts[0]; t_fails += counts[1];
+}
+#define RUNF(fn) run_forked(#fn, fn)
+
 int main(void)
 {
-    RUN(so01_settings_equivalent);
-    RUN(so02_degenerate);
-    RUN(so03_part_counts);
-    RUN(so04_env);
-    RUN(so05_sort_records_uses_env);
+    RUNF(so01_settings_equivalent);
+    RUNF(so02_degenerate);
+    RUNF(so03_part_counts);
+    RUNF(so04_env);
+    RUNF(so05_sort_records_uses_env);
+    RUNF(so06_heavy_parts);
     return t_report("test_sort_opts");
 }

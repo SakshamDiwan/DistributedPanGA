@@ -87,6 +87,19 @@ int sort_parts_from_env(void)
     return (v == 256) ? 256 : 1024;
 }
 
+int sort_heavy_from_env(void)
+{
+    const char *e = getenv("PGA_SORT_HEAVY");
+    return !(e != NULL && strcmp(e, "0") == 0);
+}
+
+// Index of the next 8 key bits after the part prefix (10 bits for 1024
+// parts, 8 for 256): a monotone function of the key within one part.
+static inline int sub_of(const uint8_t *rec, int nparts)
+{
+    return (nparts == 1024) ? ((((int) rec[2] & 0x3f) << 2) | ((int) rec[3] >> 6)) : rec[2];
+}
+
 void sort_records(RecordBuffer *buf)
 {
     sort_records_opts(buf, sort_threads_from_env(), sort_parts_from_env());
@@ -159,13 +172,116 @@ void sort_records_opts(RecordBuffer *buf, int nthreads, int nparts)
     }
     double t1 = sort_now();
 
-    // With 1024 parts msd_sort's own part-seam byte-0 values index
-    // LCP_Table[x ^ n] only when parts x and n share bits 8-9, so x ^ n < 256
-    // stays in range. Those byte-0 values are overwritten by recalc_all_lcps.
-    msd_sort(buf->data, buf->count, rsize, ksize, part, 0, nparts, nthreads);
+    // Heavy parts. msd_sort sorts each part on one thread, so a part holding
+    // more than 1/nthreads of the records (poly-A/T buckets: up to 100 M
+    // records on hsapiens90) bounds the sort. Each heavy part is regrouped
+    // (stable) into 256 sub-parts on the next 8 key bits, and msd_sort gets
+    // those sub-parts as separate parts. Part and sub-part boundaries are key
+    // boundaries, so the result is sorted; only byte 0 (rewritten by
+    // recalc_all_lcps) and the order of equal k-mers can differ.
+    // PGA_SORT_HEAVY=0 disables this.
+    int heavy_on = sort_heavy_from_env() && nthreads > 1;
+    int64 heavy_min = buf->count / nthreads;
+    if (heavy_min < 65536) heavy_min = 65536;
+    int nheavy = 0;
+    double t_heavy = 0;
+    if (heavy_on)
+        for (int i = 0; i < nparts; i++)
+            if (bucket_count[i] > heavy_min) nheavy++;
+
+    if (nheavy == 0)
+    {
+        // With 1024 parts msd_sort's own part-seam byte-0 values index
+        // LCP_Table[x ^ n] only when parts x and n share bits 8-9, so x ^ n < 256
+        // stays in range. Those byte-0 values are overwritten by recalc_all_lcps.
+        msd_sort(buf->data, buf->count, rsize, ksize, part, 0, nparts, nthreads);
+    }
+    else
+    {
+        double th = sort_now();
+        int64 maxheavy = 0;
+        for (int i = 0; i < nparts; i++)
+            if (bucket_count[i] > heavy_min && bucket_count[i] > maxheavy) maxheavy = bucket_count[i];
+        int64 *heavy_sub[1024];
+        for (int i = 0; i < nparts; i++) heavy_sub[i] = NULL;
+        uint8_t *htmp = (uint8_t *) malloc(maxheavy * rsize + 1);
+        if (htmp == NULL)
+        {
+            fprintf(stderr, "sort_records: out of memory for heavy-part buffer\n");
+            exit(1);
+        }
+        for (int i = 0; i < nparts; i++)
+        {
+            if (bucket_count[i] <= heavy_min) continue;
+            uint8_t *base = buf->data + bucket_start[i];
+            int64 n = bucket_count[i];
+            int64 sub_count[256], sub_cur[256];
+            for (int j = 0; j < 256; j++) sub_count[j] = 0;
+            for (int64 r = 0; r < n; r++)
+                sub_count[sub_of(base + r * rsize, nparts)]++;
+            int64 c = 0;
+            for (int j = 0; j < 256; j++) { sub_cur[j] = c * rsize; c += sub_count[j]; }
+            for (int64 r = 0; r < n; r++)
+            {
+                uint8_t *src = base + r * rsize;
+                int j = sub_of(src, nparts);
+                memcpy(htmp + sub_cur[j], src, rsize);
+                sub_cur[j] += rsize;
+            }
+            memcpy(base, htmp, n * rsize);
+            heavy_sub[i] = (int64 *) malloc(256 * sizeof(int64));
+            if (heavy_sub[i] == NULL)
+            {
+                fprintf(stderr, "sort_records: out of memory for heavy sub-counts\n");
+                exit(1);
+            }
+            memcpy(heavy_sub[i], sub_count, 256 * sizeof(int64));
+        }
+        free(htmp);
+        // One msd_sort call over a combined list of contiguous key ranges: the
+        // light parts and the heavy parts' sub-parts, in key order, merged
+        // greedily to at most ~1000 segments (two consecutive segments always
+        // exceed `target`, so there are at most 2*count/target + 1 = 1001).
+        // A single call matters: msd_sort re-initialises its static mutex and
+        // condition variable on entry while a worker of the previous call may
+        // still be signalling, so back-to-back calls can lose a wakeup and hang.
+        // Segment indices stay < 1024, so its seam code stays inside LCP_Table.
+        int64 target = (buf->count + 499) / 500;     // ceil: count / target <= 500
+        if (target < 1) target = 1;
+        int64 *seg = (int64 *) malloc(1024 * sizeof(int64));
+        if (seg == NULL)
+        {
+            fprintf(stderr, "sort_records: out of memory for segments\n");
+            exit(1);
+        }
+        int nseg = 0;
+        int64 cur = 0;                 // records in the open segment
+#define ADD_UNIT(nrec) do { int64 u_ = (nrec);                                  \
+            if (u_ == 0) break;                                               \
+            if (cur > 0 && cur + u_ > target) { seg[nseg++] = cur * rsize; cur = 0; } \
+            cur += u_; } while (0)
+        for (int i = 0; i < nparts; i++)
+        {
+            if (bucket_count[i] <= heavy_min) { ADD_UNIT(bucket_count[i]); continue; }
+            for (int j = 0; j < 256; j++) ADD_UNIT(heavy_sub[i][j]);
+        }
+        if (cur > 0) seg[nseg++] = cur * rsize;
+#undef ADD_UNIT
+        if (nseg > 1024)
+        {
+            fprintf(stderr, "sort_records: %d segments > 1024 (internal error)\n", nseg);
+            exit(1);
+        }
+        msd_sort(buf->data, buf->count, rsize, ksize, seg, 0, nseg, nthreads);
+        free(seg);
+        for (int i = 0; i < nparts; i++) free(heavy_sub[i]);
+        t_heavy = sort_now() - th;
+    }
 
     g_sort_timing.rebucket_s     = t1 - t0;
     g_sort_timing.msd_s          = sort_now() - t1;
+    g_sort_timing.heavy_parts    = nheavy;
+    g_sort_timing.heavy_s        = t_heavy;
     g_sort_timing.threads        = nthreads;
     g_sort_timing.parts          = nparts;
     g_sort_timing.nonempty_parts = nonempty;
