@@ -39,6 +39,7 @@ O=${R3_OUT:-$HOME/pga-r3-results}/$DS/n$NODES-r$N; mkdir -p "$O"
 RUN=$SCRATCH/pga-r3/$SLURM_JOB_NAME-$SLURM_JOB_ID; mkdir -p "$RUN"; cd "$RUN"
 echo "JOB $SLURM_JOB_ID  NODES $SLURM_JOB_NODELIST  DATE $(date -Is)"
 echo "dataset $STEM  placement: $N ranks, $NODES nodes, $RPN/node, -c $C (physical cores/rank $PHYS), --cpu-bind=cores"
+echo "toolchain: $(cc --version 2>/dev/null | head -1) | $(module -t list 2>&1 | grep -E '^(PrgEnv|cray-mpich|craype/)' | tr '\n' ' ') | CFLAGS from make -n: $(make -s -C $R -Bn CC=cc pga-mpi-merge 2>/dev/null | grep -o '\-O3.*-DLCPs' | head -1)"
 echo "repo: $(git -C $R rev-parse HEAD) ($(git -C $R rev-parse --abbrev-ref HEAD))  dirty: $(git -C $R status --porcelain | grep -v '^??' | tr '\n' ' ')"
 echo "BENCH: sha256 $(sha256sum < $BENCH | cut -c1-16)  darshan-linked: $(ldd $BENCH | grep -c darshan)"
 [ -s $STEM.1gdb ] || { echo "GDB missing: $STEM.1gdb"; exit 1; }

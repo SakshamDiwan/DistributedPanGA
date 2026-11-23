@@ -42,6 +42,7 @@ echo "JOB: $SLURM_JOB_ID  NODES: $SLURM_JOB_NODELIST  DATE: $(date -Is)  RUN: $R
 echo "placement: $N ranks, $NODES nodes, $RPN ranks/node, -c $C, --cpu-bind=cores"
 [ -s $STEM.1gdb ] || { echo "GDB missing"; exit 1; }
 [ -s $D/gold.paf ] || { echo "gold missing: $D/gold.paf"; exit 1; }
+echo "toolchain: $(cc --version 2>/dev/null | head -1) | $(module -t list 2>&1 | grep -E '^(PrgEnv|cray-mpich|craype/)' | tr '\n' ' ') | CFLAGS from make -n: $(make -s -C $R -Bn CC=cc pga-mpi-merge 2>/dev/null | grep -o '\-O3.*-DLCPs' | head -1)"
 echo "repo: $(git -C $R rev-parse HEAD) ($(git -C $R rev-parse --abbrev-ref HEAD))  dirty: $(git -C $R status --porcelain | grep -v '^??' | tr '\n' ' ')"
 echo "BIN: $BIN  sha256 $(sha256sum < $BIN | cut -c1-16)  built $(stat -c %y $BIN | cut -c1-19)  darshan-linked: $(ldd $BIN | grep -c darshan)"
 export PGA_SCRATCH_DIR=$RUN/scratch; mkdir -p "${PGA_SCRATCH_DIR:?}"
