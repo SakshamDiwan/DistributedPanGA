@@ -40,8 +40,6 @@ Open items found here:
   joined, `pthread_create` unchecked, `if` around `cond_wait`, static
   mutex/condvar re-initialised per call. Production is safe (one call per
   process); report upstream.
-- Yifan's question list was not found; §10 answers the questions from the
-  task text.
 - ≥128 ranks: deeper prefix buckets and sub-contig extraction are deferred
   (§12.2).
 

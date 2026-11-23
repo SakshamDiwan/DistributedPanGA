@@ -66,7 +66,6 @@ on this branch (cherry-picked 26b80da).
 | P2-B chunked exchange | **DONE** (`MPI_Alltoallv_c` default) | rounds were forced by 32-bit counts; staging cost 2 GiB/rank and two copies; `MPI_Alltoallv_c` is faster in every configuration (human 32: 4.63 → 3.27 s; primates14 16: 1.65 → 0.60 s) |
 | P1-D 128+ ranks | **DONE** (measured at 128/256 ranks with `pga-dsort-bench`) | sort side runs at 128 and 256 ranks; 256 is not faster than 128 on 8 nodes (8.79 vs 8.34 s): five-base buckets and the remaining heavy groups bound it; the 127 cap is the `int8_t` pair map (alignment side, not touched) |
 | N1 lemma | **DONE** (§9) | checked against `new_self_merge_thread` line by line; the exact condition is "whole 12-base groups per rank", weaker than "whole 5-base buckets" |
-| Yifan's questions | **BLOCKED** | the question list is not in the repo or notes; §10 answers the R3 extraction/sort questions as stated in the task. Paste the list to map answers one-to-one |
 | End-to-end gold on this branch | **DONE** | 32/32 gold=MATCH: 15 (round 1), 7 (round 2), 10 (round 3, final defaults + physical-core threads) |
 | MPI test tier (M-07, large-count) | **DONE** | PASS at 1, 2, 3, 4, 8 ranks on each of the three builds; M-06 made all 4 comparisons |
 | FastGA `msd_sort` defects found | **RECORDED** (not fixed: `lib/` is upstream) | never joins its threads, ignores `pthread_create` failure, re-initialises its static mutex/condvar per call; safe for one call per process, which is how production uses it (§6) |
@@ -813,9 +812,6 @@ $1/0.0088 \approx 114$. Any finer prefix of at most $12$ bases also satisfies
 ---
 
 ## 10. Answers to the R3 extraction/sort questions
-
-*Yifan's question list was not available. These answer the questions in the
-R3 task description; map them one-to-one once the list is pasted.*
 
 1. **Do five-base buckets cause imbalance?** The buckets themselves are very
    uneven (max/mean 8.97). The per-rank slices are not, up to 64 ranks
