@@ -37,7 +37,8 @@
 //   take     M-07 (R3): run_stage2_take, which frees the extraction buffer
 //            right after packing, gives byte-identical slices to run_stage2
 //            and leaves the input buffer empty; and the sort settings
-//            PGA_SORT_PARTS=1024 / PGA_SORT_THREADS=3 give the same
+//            PGA_SORT_PARTS=1024 / PGA_SORT_THREADS=3 / PGA_SPLITTER=optimal
+//            give the same
 //            (k-mer, LCP) sequence. Input has duplicate k-mers and skew.
 //
 // EXIT STATUS is Allreduced so every rank returns the same code; otherwise
@@ -521,18 +522,20 @@ static void mode_take(void)
     record_buffer_free(&r2);
 
     setenv("PGA_SORT_PARTS", "1024", 1); setenv("PGA_SORT_THREADS", "3", 1);
+    setenv("PGA_SPLITTER", "optimal", 1);
     fill_slice_dups(&l3, lo, hi);
     memset(&r3, 0, sizeof r3);
     run_stage2_take(&l3, &r3, MPI_COMM_WORLD);
     CHECK_EQ_I(g_stage2_timing.sort_parts, 1024);
     CHECK_EQ_I(g_stage2_timing.sort_threads, 3);
-    unsetenv("PGA_SORT_PARTS"); unsetenv("PGA_SORT_THREADS");
+    CHECK_EQ_I(g_stage2_timing.splitter, 1);
+    unsetenv("PGA_SORT_PARTS"); unsetenv("PGA_SORT_THREADS"); unsetenv("PGA_SPLITTER");
 
     b1 = gather_all(&r1, &n1);
     b3 = gather_all(&r3, &n3);
     if (RANK == 0) {
         check_global(b1, n1, TOTAL, "M-07 run_stage2 (dups)");
-        check_global(b3, n3, TOTAL, "M-07 take + 1024 parts + 3 threads");
+        check_global(b3, n3, TOTAL, "M-07 take + 1024 parts + 3 threads + optimal splitter");
         int same = (n1 == n3);
         for (int64_t i = 0; same && i < n1; i++)
             same = memcmp(b1 + i * SZ.record_size, b3 + i * SZ.record_size, 1 + KBYTES) == 0;

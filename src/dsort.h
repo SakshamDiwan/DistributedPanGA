@@ -46,6 +46,13 @@ void bucket_local_counts(const RecordBuffer *local, int64_t *local_counts);
 void compute_destination_map(const int64_t *global_counts, int world_size,
                              int *ksplit, int *select);
 
+// Opt-in alternative (PGA_SPLITTER=optimal): contiguous split of the buckets
+// that minimises the largest rank's record count. Same invariants as above.
+void compute_destination_map_optimal(const int64_t *global_counts, int world_size,
+                                     int *ksplit, int *select);
+// 1 if PGA_SPLITTER=optimal, else 0 (FastGA-style greedy map).
+int splitter_from_env(void);
+
 // Reorganize `local` into a contiguous send buffer ordered by destination rank.
 // Out-of-place per-rank lists, then concat.
 //
@@ -124,6 +131,7 @@ typedef struct {
     int     sort_threads, sort_parts, sort_nonempty_parts;
     int64_t sort_largest_part;
     int     took_local;   // 1 if the extraction buffer was freed after packing
+    int     splitter;     // 0 = compute_destination_map, 1 = ..._optimal
     // VmRSS / VmHWM (kB) sampled at substage ends: 0 start, 1 after pack,
     // 2 after exchange (send buffer still live), 3 after frees, 4 after sort,
     // 5 end. VmHWM is cumulative since the caller's last reset.

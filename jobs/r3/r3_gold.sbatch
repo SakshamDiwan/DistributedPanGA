@@ -18,7 +18,7 @@ module load cpu; module unload darshan
 export PATH=$FASTGA_DIR:$PATH
 export MPICH_GPU_SUPPORT_ENABLED=0 OMP_NUM_THREADS=1
 export PGA_ALNTOPAF_TIMEOUT=3600
-unset  PGA_EXCHANGE_ROUND_BYTES PGA_PAIR_TASKS PGA_MEM_STAGE_RESET PGA_SORT_THREADS PGA_SORT_PARTS PGA_STAGE2_KEEP_LOCAL PGA_EXCHANGE_LARGE_COUNT
+unset  PGA_EXCHANGE_ROUND_BYTES PGA_PAIR_TASKS PGA_MEM_STAGE_RESET PGA_SORT_THREADS PGA_SORT_PARTS PGA_STAGE2_KEEP_LOCAL PGA_EXCHANGE_LARGE_COUNT PGA_SPLITTER
 
 N=$SLURM_NTASKS; NODES=$SLURM_JOB_NUM_NODES
 (( N % NODES == 0 )) || { echo "ranks ($N) not divisible by nodes ($NODES)"; exit 1; }
@@ -28,10 +28,10 @@ VARIANT=${R3_VARIANT:-default}
 case $VARIANT in
   default) ;;
   keep)    export PGA_STAGE2_KEEP_LOCAL=1 ;;
-  fast)    export PGA_SORT_PARTS=1024 PGA_SORT_THREADS=$PHYS PGA_EXCHANGE_LARGE_COUNT=1 ;;
+  fast)    export PGA_SORT_PARTS=1024 PGA_SORT_THREADS=$PHYS PGA_EXCHANGE_LARGE_COUNT=1 PGA_SPLITTER=optimal ;;
   *) echo "unknown R3_VARIANT $VARIANT"; exit 1 ;;
 esac
-echo "variant $VARIANT: PGA_SORT_PARTS=${PGA_SORT_PARTS:-} PGA_SORT_THREADS=${PGA_SORT_THREADS:-} PGA_EXCHANGE_LARGE_COUNT=${PGA_EXCHANGE_LARGE_COUNT:-} PGA_STAGE2_KEEP_LOCAL=${PGA_STAGE2_KEEP_LOCAL:-}"
+echo "variant $VARIANT: PGA_SORT_PARTS=${PGA_SORT_PARTS:-} PGA_SORT_THREADS=${PGA_SORT_THREADS:-} PGA_EXCHANGE_LARGE_COUNT=${PGA_EXCHANGE_LARGE_COUNT:-} PGA_STAGE2_KEEP_LOCAL=${PGA_STAGE2_KEEP_LOCAL:-} PGA_SPLITTER=${PGA_SPLITTER:-}"
 echo "PGA_FASTGA_ORDER=${PGA_FASTGA_ORDER:-1} PGA_FASTGA_THREADS=${PGA_FASTGA_THREADS:-32}"
 
 RUN=$SCRATCH/pga-r3/$SLURM_JOB_NAME-$SLURM_JOB_ID; mkdir -p "${RUN:?}/tmp"
@@ -54,7 +54,7 @@ echo "pga-mpi-merge rc=$rc wall_s=$wall"
 tail -1 pga-mpi-merge.timing.csv 2>/dev/null | sed 's/^/csv: /'
 P=$(grep -h '^\[pr1-mem\]' merge.err | grep -oE 'overall_peak_kb=[0-9]+' | cut -d= -f2 | sort -n | tail -1)
 echo "max rank overall_peak_kb=$P"
-echo "[r3-s2] lines: $(grep -c '^\[r3-s2\]' merge.err)  took_local: $(grep -ho 'took_local=[01]' merge.err | sort | uniq -c | tr '\n' ' ')  sort: $(grep -ho 'sort_threads=[0-9]* sort_parts=[0-9]*' merge.err | sort | uniq -c | tr '\n' ' ')"
+echo "[r3-s2] lines: $(grep -c '^\[r3-s2\]' merge.err)  took_local: $(grep -ho 'took_local=[01]' merge.err | sort | uniq -c | tr '\n' ' ')  sort: $(grep -ho 'sort_threads=[0-9]* sort_parts=[0-9]*\|splitter=[a-z]*' merge.err | sort | uniq -c | tr '\n' ' ')"
 cat out.rank*.paf | LC_ALL=C sort -S 32G --parallel=16 -T $TMPDIR > got.sorted.paf
 LC_ALL=C sort -S 32G --parallel=16 -T $TMPDIR $D/gold.paf > $TMPDIR/gold.sorted.paf
 echo "alignments: $(wc -l < got.sorted.paf)  gold: $(wc -l < $TMPDIR/gold.sorted.paf)"

@@ -167,6 +167,64 @@ void compute_destination_map(const int64_t *global_counts, int world_size,
 }
 
 
+// Min-max contiguous split (R3, opt-in via PGA_SPLITTER=optimal): the
+// smallest cap such that the buckets, taken in order, fit into world_size
+// contiguous ranges each holding <= cap records; then fill ranks greedily up
+// to that cap. Same invariants as compute_destination_map (monotone, in range,
+// deterministic, whole buckets), so ownership stays a contiguous, ordered
+// prefix range per rank; only the boundaries move. Trailing ranks may be empty.
+static int split_fits(const int64_t *c, int world_size, int64_t cap)
+{
+    int parts = 1;
+    int64_t sum = 0;
+    for (int i = 0; i < NUM_BUCK; i++)
+    {
+        if (c[i] > cap) return 0;
+        if (sum + c[i] > cap) { parts++; sum = c[i]; if (parts > world_size) return 0; }
+        else sum += c[i];
+    }
+    return 1;
+}
+
+void compute_destination_map_optimal(const int64_t *global_counts, int world_size,
+                                     int *ksplit, int *select)
+{
+    int64_t lo = 0, hi = 0;
+    for (int i = 0; i < NUM_BUCK; i++)
+    {
+        hi += global_counts[i];
+        if (global_counts[i] > lo) lo = global_counts[i];
+    }
+    while (lo < hi)
+    {
+        int64_t mid = lo + (hi - lo) / 2;
+        if (split_fits(global_counts, world_size, mid)) hi = mid;
+        else lo = mid + 1;
+    }
+    int r = 0;
+    int64_t sum = 0;
+    ksplit[0] = 0;
+    for (int i = 0; i < NUM_BUCK; i++)
+    {
+        if (sum + global_counts[i] > lo && r + 1 < world_size)
+        {
+            r++;
+            ksplit[r] = i;
+            sum = 0;
+        }
+        sum += global_counts[i];
+        select[i] = r;
+    }
+    for (int q = r + 1; q <= world_size; q++)
+        ksplit[q] = NUM_BUCK;
+}
+
+int splitter_from_env(void)
+{
+    const char *e = getenv("PGA_SPLITTER");
+    return (e != NULL && strcmp(e, "optimal") == 0) ? 1 : 0;
+}
+
 // Stage 2 — send-side organization (per-rank lists, then concat).
 
 void organize_send_buffer(const RecordBuffer *local, const int *select,
@@ -428,7 +486,11 @@ static void stage2_impl(const RecordBuffer *local, RecordBuffer *own,
         fprintf(stderr, "run_stage2: out of memory for splitter arrays\n");
         MPI_Abort(comm, 1);
     }
-    compute_destination_map(global_counts, world_size, ksplit, select);
+    tm->splitter = splitter_from_env();
+    if (tm->splitter)
+        compute_destination_map_optimal(global_counts, world_size, ksplit, select);
+    else
+        compute_destination_map(global_counts, world_size, ksplit, select);
     t1 = MPI_Wtime(); tm->map_s = t1 - ta; tm->hist_s = t1 - t0; t0 = t1;
     dump_bucket_hist(global_counts, select, my_rank);
 
@@ -589,13 +651,14 @@ void stage2_report(FILE *f, int rank)
                "sizes_s=%.6f xfer_s=%.6f free_s=%.6f rebucket_s=%.6f msd_s=%.6f lcp_s=%.6f "
                "check_s=%.6f boundary_s=%.6f sent_bytes=%lld self_bytes=%lld recv_bytes=%lld "
                "rounds=%lld staging=%lld sort_threads=%d sort_parts=%d nonempty_parts=%d "
-               "largest_part=%lld took_local=%d",
+               "largest_part=%lld took_local=%d splitter=%s",
             rank, t->count_s, t->allreduce_s, t->map_s, t->pack_s, t->sizes_s, t->xfer_s,
             t->free_s, t->rebucket_s, t->msd_s, t->lcp_s, t->check_s, t->boundary_s,
             (long long) t->sent_bytes, (long long) t->self_bytes, (long long) t->recv_bytes,
             (long long) t->exchange_rounds, (long long) t->exchange_staging,
             t->sort_threads, t->sort_parts, t->sort_nonempty_parts,
-            (long long) t->sort_largest_part, t->took_local);
+            (long long) t->sort_largest_part, t->took_local,
+            t->splitter ? "optimal" : "fastga");
     for (int i = 0; i < 6; i++)
         fprintf(f, " rss%d_kb=%ld hwm%d_kb=%ld", i, t->rss_kb[i], i, t->hwm_kb[i]);
     fprintf(f, "\n");
